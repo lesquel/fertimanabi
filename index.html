@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FertiManabí</title>
+  <meta name="description" content="Calcula cuánto fertilizante y cuánto dinero necesita tu cultivo en Manabí, por hectárea, con la Ley del Mínimo de Liebig.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" data-tab="calc">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 29V14" /><path d="M16 18c-6 0-9-4-9-10 6 0 9 4 9 10Z" /><path d="M16 14c0-5 3-9 9-9 0 6-3 9-9 9Z" /></svg>
+      FertiManabí
+    </a>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="calc" aria-selected="true">Calcular</button>
+      <button role="tab" data-tab="ferts" aria-selected="false">Fertilizantes</button>
+      <button role="tab" data-tab="crops" aria-selected="false">Cultivos</button>
+      <button role="tab" data-tab="history" aria-selected="false">Historial <span id="historyCount" class="pill" hidden></span></button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Calculator -->
+    <section id="tab-calc" class="panel" role="tabpanel">
+      <div class="hero">
+        <h1>¿Cuánto abono necesita tu hectárea?</h1>
+        <p>Elige el cultivo, escribe tu análisis de suelo y te decimos qué falta, cuántos sacos comprar y cuánto vas a gastar.</p>
+      </div>
+
+      <div class="calc-grid">
+        <form id="calcForm" class="form" autocomplete="off" novalidate>
+          <fieldset class="step">
+            <legend><span class="step-n">1</span> Cultivo</legend>
+            <label class="field">
+              <span>Busca entre 50 rubros de Manabí</span>
+              <input id="cropSearch" type="search" placeholder="Ej.: cacao, maíz, maracuyá">
+            </label>
+            <label class="field">
+              <span>Cultivo</span>
+              <select id="cropSelect" required></select>
+            </label>
+            <div id="cropCard" class="crop-card"></div>
+          </fieldset>
+
+          <fieldset class="step">
+            <legend><span class="step-n">2</span> Análisis de suelo</legend>
+            <div class="row3">
+              <label class="field">
+                <span>Nitrógeno disponible <small>ppm</small></span>
+                <input id="soilN" type="number" min="0" step="0.1" value="20" inputmode="decimal">
+              </label>
+              <label class="field">
+                <span>Fósforo (P) <small>ppm</small></span>
+                <input id="soilP" type="number" min="0" step="0.1" value="8" inputmode="decimal">
+              </label>
+              <label class="field">
+                <span>Potasio (K)</span>
+                <div class="combo">
+                  <input id="soilK" type="number" min="0" step="0.01" value="0.25" inputmode="decimal">
+                  <select id="soilKUnit" aria-label="Unidad del potasio">
+                    <option value="cmol">cmol/kg</option>
+                    <option value="ppm">ppm</option>
+                  </select>
+                </div>
+              </label>
+            </div>
+            <div class="row3">
+              <label class="field">
+                <span>pH <small>opcional</small></span>
+                <input id="soilPh" type="number" min="3" max="10" step="0.1" placeholder="6.5" inputmode="decimal">
+              </label>
+              <label class="field">
+                <span>Altitud <small>m s. n. m., opcional</small></span>
+                <input id="altitude" type="number" min="0" step="10" placeholder="120" inputmode="numeric">
+              </label>
+              <label class="field">
+                <span>Superficie <small>ha</small></span>
+                <input id="area" type="number" min="0.01" step="0.01" value="1" inputmode="decimal">
+              </label>
+            </div>
+
+            <details class="advanced">
+              <summary>Ajustes avanzados</summary>
+              <p class="hint">El suelo se convierte de ppm a kg/ha con la profundidad y la densidad aparente. La eficiencia es la parte del abono que la planta realmente aprovecha; déjala en 100 % para aplicar la Ley de Liebig pura.</p>
+              <div class="row3">
+                <label class="field"><span>Profundidad <small>cm</small></span><input id="depth" type="number" min="5" step="1" value="20"></label>
+                <label class="field"><span>Densidad aparente <small>g/cm³</small></span><input id="density" type="number" min="0.5" max="2" step="0.05" value="1.3"></label>
+                <span></span>
+              </div>
+              <div class="row3">
+                <label class="field"><span>Eficiencia N <small>%</small></span><input id="effN" type="number" min="10" max="100" step="5" value="100"></label>
+                <label class="field"><span>Eficiencia P <small>%</small></span><input id="effP" type="number" min="10" max="100" step="5" value="100"></label>
+                <label class="field"><span>Eficiencia K <small>%</small></span><input id="effK" type="number" min="10" max="100" step="5" value="100"></label>
+              </div>
+            </details>
+          </fieldset>
+
+          <fieldset class="step">
+            <legend><span class="step-n">3</span> Fertilizantes que vas a usar</legend>
+            <p class="hint">Primero se cubre el fósforo, luego el potasio y al final el nitrógeno, descontando lo que ya aportó cada abono.</p>
+            <label class="field"><span><i class="dot dot-p"></i> Fuente de fósforo</span><select id="srcP"></select></label>
+            <label class="field"><span><i class="dot dot-k"></i> Fuente de potasio</span><select id="srcK"></select></label>
+            <label class="field"><span><i class="dot dot-n"></i> Fuente de nitrógeno</span><select id="srcN"></select></label>
+          </fieldset>
+        </form>
+
+        <aside class="result" aria-live="polite">
+          <div class="result-head">
+            <p id="resultCrop" class="result-crop"></p>
+            <p class="result-label">Costo total del abono</p>
+            <p id="totalCost" class="total">$0.00</p>
+            <p id="totalSub" class="total-sub"></p>
+          </div>
+
+          <div class="columns" id="columns"></div>
+          <div class="legend">
+            <span><i class="sw sw-soil"></i> Lo pone el suelo</span>
+            <span><i class="sw sw-def"></i> Déficit a cubrir</span>
+          </div>
+
+          <table class="buy">
+            <thead><tr><th>Fertilizante</th><th>kg</th><th>Sacos</th><th>Costo</th></tr></thead>
+            <tbody id="buyBody"></tbody>
+          </table>
+
+          <ul id="warnings" class="warnings"></ul>
+
+          <button id="saveBtn" type="button" class="btn">Guardar en el historial</button>
+          <p id="toast" class="toast" role="status"></p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Fertilizers DB -->
+    <section id="tab-ferts" class="panel" role="tabpanel" hidden>
+      <div class="db-head">
+        <div>
+          <h2>Fertilizantes</h2>
+          <p>25 abonos tradicionales. Los precios son referenciales por saco de 50 kg: cámbialos por los de tu almacén y se guardan en este navegador.</p>
+        </div>
+        <button id="resetPrices" type="button" class="btn btn-ghost">Restablecer precios</button>
+      </div>
+      <div class="table-wrap">
+        <table class="db">
+          <thead><tr><th>Fertilizante</th><th>N %</th><th>P₂O₅ %</th><th>K₂O %</th><th>Precio saco 50 kg (USD)</th></tr></thead>
+          <tbody id="fertBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Crops DB -->
+    <section id="tab-crops" class="panel" role="tabpanel" hidden>
+      <div class="db-head">
+        <div>
+          <h2>Cultivos de Manabí</h2>
+          <p>50 rubros con su requerimiento edafoclimático y nutricional por ciclo.</p>
+        </div>
+        <input id="cropFilter" type="search" placeholder="Filtrar por nombre o grupo" aria-label="Filtrar cultivos">
+      </div>
+      <div class="table-wrap">
+        <table class="db">
+          <thead><tr><th>Cultivo</th><th>Grupo</th><th>Altitud (m)</th><th>Temp. (°C)</th><th>Lluvia (mm)</th><th>pH</th><th>Suelo</th><th>N</th><th>P₂O₅</th><th>K₂O</th></tr></thead>
+          <tbody id="cropBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">N, P₂O₅ y K₂O en kg/ha por ciclo. Valores de referencia para la costa ecuatoriana.</p>
+    </section>
+
+    <!-- History -->
+    <section id="tab-history" class="panel" role="tabpanel" hidden>
+      <div class="db-head">
+        <div>
+          <h2>Historial</h2>
+          <p>Tus cálculos guardados en este navegador.</p>
+        </div>
+        <button id="clearHistory" type="button" class="btn btn-ghost">Borrar todo</button>
+      </div>
+      <ul id="historyList" class="history"></ul>
+    </section>
+  </main>
+
+  <footer class="foot">
+    Valores referenciales. Para recomendaciones de campo, consulta a un agrónomo y usa un análisis de suelo de laboratorio.
+  </footer>
+
+  <script src="data/fertilizers.js"></script>
+  <script src="data/crops.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
