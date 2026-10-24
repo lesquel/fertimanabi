@@ -4,7 +4,7 @@ Calculadora de fertilización por hectárea para cultivos de Manabí, Ecuador. U
 
 Es solo HTML, CSS y JavaScript. No necesita instalar nada.
 
-¿No sabes de programación? Lee [cómo se hizo](docs/COMO-SE-HIZO.md), explicado en simple (también en [Word](docs/COMO-SE-HIZO.docx)).
+¿No sabes de programación? Lee [cómo se hizo](docs/COMO-SE-HIZO.md), explicado en simple (también en [Word](docs/COMO-SE-HIZO.docx) y [PDF](docs/COMO-SE-HIZO.pdf)).
 
 ## Cómo usarla
 
