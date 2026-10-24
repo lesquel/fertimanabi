@@ -232,7 +232,36 @@ input:focus, select:focus { outline: none; border-color: var(--leaf); box-shadow
 .btn:hover { filter: brightness(1.08); }
 .btn:active { transform: translateY(1px); }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn-wide { grid-column: 1 / -1; }
 @media (max-width: 420px) { .actions { grid-template-columns: 1fr; } }
+
+/* Liming block inside the result panel */
+.lime {
+  border: 1.5px dashed color-mix(in srgb, var(--panel-ink) 35%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  display: grid; gap: 4px;
+}
+.lime-title { margin: 0; font: 700 1.05rem var(--display); }
+.lime-title span { float: right; font-variant-numeric: tabular-nums; }
+.lime p { margin: 0; font-size: 0.9rem; color: var(--panel-muted); }
+.buy tr.lime-row td { color: var(--panel-muted); }
+
+/* Formula comparison */
+.compare { margin-top: clamp(32px, 5vw, 56px); }
+.cmp td { vertical-align: middle; }
+.cmp .rank { font: 800 1.4rem var(--display); color: var(--muted); width: 4rem; }
+.cmp tr.best .rank { color: var(--leaf); }
+.cmp tr.mine { background: color-mix(in srgb, var(--p) 10%, transparent); }
+.cmp .mix { display: grid; gap: 2px; }
+.cmp .mix small { color: var(--muted); }
+.cmp .tag { display: inline-block; font-size: 0.78rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--leaf); color: var(--surface); margin-left: 6px; vertical-align: 1px; }
+.cmp .tag-mine { background: var(--p); color: #1c1206; }
+.cmp .cost { font: 700 1.1rem var(--display); white-space: nowrap; }
+.cmp .save { color: var(--leaf); font-weight: 700; white-space: nowrap; }
+.cmp .more { color: var(--muted); white-space: nowrap; }
+.dot-lime { background: var(--soil); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .btn-light { background: var(--panel-ink); color: var(--panel); }
 .btn-ghost {background: transparent; color: var(--ink); border: 1.5px solid var(--line); padding: 9px 16px; font-size: 0.92rem; }
 .btn-ghost:hover { border-color: var(--ink); filter: none; }

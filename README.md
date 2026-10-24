@@ -26,6 +26,13 @@ La app muestra el déficit, los kilos y sacos de cada fertilizante y el costo to
 
 Primero se cubre el P, luego el K y al final el N, descontando lo que ya aportó cada abono (por ejemplo, el N que trae el DAP).
 
+## Extras
+
+- **Comparar fórmulas:** prueba todas las combinaciones de fuentes de P, K y N entre los 25 fertilizantes (unas 4 000) y muestra las 5 más baratas para cubrir el mismo déficit. Con "Usar esta" se aplica la combinación.
+- **Encalado:** si el pH está por debajo del rango del cultivo, calcula la cal. Con acidez intercambiable usa Kamprath (`1.5 × Al+H` t/ha de CaCO₃); sin ese dato, estima 2 t de CaCO₃ por unidad de pH. Se ajusta por el poder neutralizante de la cal elegida y se suma al costo.
+- **Descargar Excel:** `.xlsx` con resultado, comparación, las dos bases de datos e historial.
+- **Descargar PDF:** reporte listo para imprimir con análisis, Liebig, lista de compra, encalado y fórmulas más baratas.
+
 ## Bases de datos
 
 - `data/fertilizers.js`: 25 fertilizantes tradicionales con N-P₂O₅-K₂O y precio por saco de 50 kg.

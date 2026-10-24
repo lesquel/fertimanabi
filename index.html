@@ -44,6 +44,10 @@
               <span>Cultivo</span>
               <select id="cropSelect" required></select>
             </label>
+            <label class="field field-area">
+              <span>Superficie a fertilizar <small>ha</small></span>
+              <input id="area" type="number" min="0.01" step="0.01" value="1" inputmode="decimal">
+            </label>
             <div id="cropCard" class="crop-card"></div>
           </fieldset>
 
@@ -75,12 +79,12 @@
                 <input id="soilPh" type="number" min="3" max="10" step="0.1" placeholder="6.5" inputmode="decimal">
               </label>
               <label class="field">
-                <span>Altitud <small>m s. n. m., opcional</small></span>
-                <input id="altitude" type="number" min="0" step="10" placeholder="120" inputmode="numeric">
+                <span>Acidez Al+H <small>cmol/kg, opcional</small></span>
+                <input id="soilAlh" type="number" min="0" step="0.05" placeholder="0.8" inputmode="decimal">
               </label>
               <label class="field">
-                <span>Superficie <small>ha</small></span>
-                <input id="area" type="number" min="0.01" step="0.01" value="1" inputmode="decimal">
+                <span>Altitud <small>m s. n. m., opcional</small></span>
+                <input id="altitude" type="number" min="0" step="10" placeholder="120" inputmode="numeric">
               </label>
             </div>
 
@@ -106,13 +110,14 @@
             <label class="field"><span><i class="dot dot-p"></i> Fuente de fósforo</span><select id="srcP"></select></label>
             <label class="field"><span><i class="dot dot-k"></i> Fuente de potasio</span><select id="srcK"></select></label>
             <label class="field"><span><i class="dot dot-n"></i> Fuente de nitrógeno</span><select id="srcN"></select></label>
+            <label class="field"><span><i class="dot dot-lime"></i> Cal para encalar <small>se usa solo si el pH está bajo</small></span><select id="limeSelect"></select></label>
           </fieldset>
         </form>
 
         <aside class="result" aria-live="polite">
           <div class="result-head">
             <p id="resultCrop" class="result-crop"></p>
-            <p class="result-label">Costo total del abono</p>
+            <p class="result-label">Costo total</p>
             <p id="totalCost" class="total">$0.00</p>
             <p id="totalSub" class="total-sub"></p>
           </div>
@@ -128,15 +133,33 @@
             <tbody id="buyBody"></tbody>
           </table>
 
+          <div id="lime" class="lime" hidden></div>
+
           <ul id="warnings" class="warnings"></ul>
 
           <div class="actions">
-            <button id="saveBtn" type="button" class="btn">Guardar en el historial</button>
+            <button id="saveBtn" type="button" class="btn btn-wide">Guardar en el historial</button>
             <button id="excelBtn" type="button" class="btn btn-light">Descargar Excel</button>
+            <button id="pdfBtn" type="button" class="btn btn-light">Descargar PDF</button>
           </div>
           <p id="toast" class="toast" role="status"></p>
         </aside>
       </div>
+
+      <section class="compare" aria-labelledby="cmpTitle">
+        <div class="db-head">
+          <div>
+            <h2 id="cmpTitle">Comparar fórmulas</h2>
+            <p>Las 5 combinaciones más baratas, entre los 25 fertilizantes, para cubrir el mismo déficit.</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="db cmp">
+            <thead><tr><th>Puesto</th><th>Combinación</th><th>Sacos</th><th>Costo del abono</th><th>Frente a la tuya</th><th><span class="sr-only">Acción</span></th></tr></thead>
+            <tbody id="cmpBody"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
     <!-- Fertilizers DB -->
@@ -192,6 +215,8 @@
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
   <script src="data/fertilizers.js"></script>
   <script src="data/crops.js"></script>
   <script src="app.js"></script>

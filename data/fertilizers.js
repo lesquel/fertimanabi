@@ -27,3 +27,12 @@ const FERTILIZERS = [
   { id: "f-15-3-31", name: "Bananero 15-3-31", n: 15, p: 3, k: 31, price: 42 },
   { id: "gallinaza", name: "Gallinaza (orgánico)", n: 3, p: 2.5, k: 2, price: 5 },
 ];
+
+// Liming materials. prnt = effective neutralizing power relative to pure CaCO3 (%).
+// price = USD per 50 kg sack (reference values).
+const LIMES = [
+  { id: "caco3", name: "Carbonato de calcio (cal agrícola)", prnt: 90, price: 6 },
+  { id: "dolomita", name: "Cal dolomita", prnt: 95, price: 7 },
+  { id: "cal-apagada", name: "Cal apagada (hidróxido de calcio)", prnt: 130, price: 10 },
+  { id: "cal-viva", name: "Cal viva (óxido de calcio)", prnt: 170, price: 13 },
+];
