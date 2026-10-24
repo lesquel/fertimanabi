@@ -31,6 +31,6 @@ Primero se cubre el P, luego el K y al final el N, descontando lo que ya aportó
 - `data/fertilizers.js`: 25 fertilizantes tradicionales con N-P₂O₅-K₂O y precio por saco de 50 kg.
 - `data/crops.js`: 50 rubros de Manabí con altitud, temperatura, lluvia, pH, tipo de suelo y requerimiento N-P₂O₅-K₂O (kg/ha por ciclo).
 
-Los precios se pueden editar en la pestaña Fertilizantes. Los precios y el historial se guardan en `localStorage`.
+Los precios se pueden editar en la pestaña Fertilizantes. El botón **Descargar Excel** genera un `.xlsx` con el resultado, las dos bases de datos y el historial. Los precios y el historial se guardan en `localStorage`.
 
 > Valores referenciales con fines académicos. Para recomendaciones de campo, consulte a un agrónomo.

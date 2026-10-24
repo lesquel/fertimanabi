@@ -130,7 +130,10 @@
 
           <ul id="warnings" class="warnings"></ul>
 
-          <button id="saveBtn" type="button" class="btn">Guardar en el historial</button>
+          <div class="actions">
+            <button id="saveBtn" type="button" class="btn">Guardar en el historial</button>
+            <button id="excelBtn" type="button" class="btn btn-light">Descargar Excel</button>
+          </div>
           <p id="toast" class="toast" role="status"></p>
         </aside>
       </div>
@@ -188,6 +191,7 @@
     Valores referenciales. Para recomendaciones de campo, consulta a un agrónomo y usa un análisis de suelo de laboratorio.
   </footer>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
   <script src="data/fertilizers.js"></script>
   <script src="data/crops.js"></script>
   <script src="app.js"></script>

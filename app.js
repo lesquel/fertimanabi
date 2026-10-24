@@ -286,6 +286,71 @@ function toast(msg) {
   toast.timer = setTimeout(() => t.classList.remove("show"), 2200);
 }
 
+// ---------- Excel export (SheetJS) ----------
+function exportExcel() {
+  if (typeof XLSX === "undefined") {
+    toast("No se pudo cargar el generador de Excel. Revisa tu conexión a internet.");
+    return;
+  }
+  const input = readInput();
+  const r = calculate(input);
+  const fSrc = (key) => fertById(input.sources[key]).name;
+  const round = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+
+  const summary = [
+    ["FertiManabí: cálculo de fertilización"],
+    ["Fecha", new Date().toLocaleString("es-EC")],
+    ["Cultivo", `${r.crop.name} (${r.crop.sci})`],
+    ["Superficie (ha)", input.area],
+    [],
+    ["Análisis de suelo"],
+    ["Nitrógeno (ppm)", input.soilN],
+    ["Fósforo P (ppm)", input.soilP],
+    [`Potasio K (${input.kUnit === "cmol" ? "cmol/kg" : "ppm"})`, input.soilK],
+    ["pH", input.ph ?? "No indicado"],
+    ["Altitud (m s. n. m.)", input.altitude ?? "No indicada"],
+    ["Profundidad (cm)", input.depth],
+    ["Densidad aparente (g/cm³)", input.density],
+    [],
+    ["Ley de Liebig (kg/ha)", "Requerimiento", "Aporte del suelo", "Déficit", "Eficiencia (%)", "Fuente"],
+    ...NUTRIENTS.map(({ key, label }) => [label, r.req[key], round(r.soil[key], 1), round(r.deficit[key], 1), input.eff[key], fSrc(key)]),
+    [],
+    ["Compra", "kg/ha", `kg total (${input.area} ha)`, "Sacos de 50 kg", "Precio saco (USD)", "Costo exacto (USD)", "Costo en sacos (USD)"],
+    ...r.lines.map((l) => [l.name, round(l.kgHa, 1), round(l.kg, 1), l.sacks, fertById(l.id).price, round(l.cost), round(l.costSacks)]),
+    ["TOTAL", "", "", r.lines.reduce((s, l) => s + l.sacks, 0), "", round(r.total), round(r.totalSacks)],
+    ["Costo por hectárea (USD)", round(r.total / input.area)],
+  ];
+
+  const ferts = [
+    ["Fertilizante", "N %", "P₂O₅ %", "K₂O %", "Precio saco 50 kg (USD)"],
+    ...FERTILIZERS.map((f) => [f.name, f.n, f.p, f.k, fertById(f.id).price]),
+  ];
+  const crops = [
+    ["Cultivo", "Nombre científico", "Grupo", "Altitud mín (m)", "Altitud máx (m)", "Temp mín (°C)", "Temp máx (°C)",
+      "Lluvia mín (mm)", "Lluvia máx (mm)", "pH mín", "pH máx", "Suelo", "N (kg/ha)", "P₂O₅ (kg/ha)", "K₂O (kg/ha)"],
+    ...CROPS.map((c) => [c.name, c.sci, c.group, ...c.alt, ...c.temp, ...c.rain, ...c.ph, c.soil, c.n, c.p, c.k]),
+  ];
+  const history = [
+    ["Fecha", "Cultivo", "Superficie", "Compra", "Costo (USD)"],
+    ...state.history.map((e) => [new Date(e.date).toLocaleString("es-EC"), e.cropName, e.areaTxt, e.summary, round(e.total)]),
+  ];
+
+  const sheet = (rows, widths) => {
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = widths.map((wch) => ({ wch }));
+    return ws;
+  };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet(summary, [30, 16, 18, 16, 18, 20, 20]), "Resultado");
+  XLSX.utils.book_append_sheet(wb, sheet(ferts, [30, 8, 10, 10, 22]), "Fertilizantes");
+  XLSX.utils.book_append_sheet(wb, sheet(crops, [22, 26, 16, 10, 10, 10, 10, 10, 10, 8, 8, 44, 10, 12, 12]), "Cultivos");
+  if (state.history.length) XLSX.utils.book_append_sheet(wb, sheet(history, [22, 22, 12, 60, 12]), "Historial");
+
+  const date = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `fertimanabi-${r.crop.id}-${date}.xlsx`);
+  toast("Excel descargado");
+}
+
 // ---------- Tabs ----------
 function showTab(name) {
   document.querySelectorAll(".tabs [role=tab]").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === name));
@@ -327,6 +392,8 @@ function init() {
     renderHistory();
     toast("Guardado en el historial");
   });
+
+  $("excelBtn").addEventListener("click", exportExcel);
 
   $("historyList").addEventListener("click", (e) => {
     const load = e.target.dataset.load;
