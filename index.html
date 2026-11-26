@@ -168,7 +168,7 @@
             <div class="row3">
               <label class="field"><span>Riegos con abono <small>en la etapa</small></span><input id="fgApps" type="number" min="1" step="1" value="10" inputmode="numeric"></label>
               <label class="field"><span>Agua por riego <small>litros</small></span><input id="fgWater" type="number" min="0.1" step="any" value="10" inputmode="decimal"></label>
-              <span></span>
+              <label class="field"><span>Capacidad del tanque <small>litros</small></span><input id="fgTank" type="number" min="0.1" step="any" value="20" inputmode="decimal"></label>
             </div>
           </fieldset>
 
@@ -270,6 +270,18 @@
         <table class="db">
           <thead><tr><th>Fertilizante</th><th>N %</th><th>P₂O₅ %</th><th>K₂O %</th><th>Precio saco 50 kg (USD)</th></tr></thead>
           <tbody id="fertBody"></tbody>
+        </table>
+      </div>
+      <div class="db-head compat-head">
+        <div>
+          <h2>¿Cuáles se pueden mezclar?</h2>
+          <p>Compatibilidad de los abonos solubles en el mismo tanque de fertirriego. Los que no se pueden juntar forman sólidos (precipitados) que tapan los goteros: van en tanques separados.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="db">
+          <thead><tr><th>Abono soluble</th><th>No mezclar con</th><th>Con cuidado</th><th>Se mezcla bien con</th></tr></thead>
+          <tbody id="compatBody"></tbody>
         </table>
       </div>
     </section>

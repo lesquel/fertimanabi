@@ -35,10 +35,29 @@ const STAGES = {
 // Greenhouse size presets in metres (width × length). Every size stays editable.
 // Each preset also suggests the litres of water per irrigation for that size.
 const GH_PRESETS = {
-  home: { dims: [1, 2], water: 10 },
-  small: { dims: [4, 10], water: 100 },
-  large: { dims: [20, 50], water: 2000 },
+  home: { dims: [1, 2], water: 10, tank: 20 },
+  small: { dims: [4, 10], water: 100, tank: 200 },
+  large: { dims: [20, 50], water: 2000, tank: 1000 },
 };
+
+// Tank compatibility. Calcium with phosphate or sulfate forms a solid (calcium phosphate, gypsum)
+// that settles and clogs the drippers, so those go in separate tanks (A and B).
+const COMPAT_TAGS = {
+  "nitrato-calcio": ["ca"],
+  map: ["phos"], dap: ["phos"], "f-20-20-20": ["phos"],
+  "sulfato-amonio": ["sulf"], sop: ["sulf"],
+};
+function compatPair(a, b) {
+  const ta = COMPAT_TAGS[a] || [];
+  const tb = COMPAT_TAGS[b] || [];
+  const meet = (x, y) => (ta.includes(x) && tb.includes(y)) || (ta.includes(y) && tb.includes(x));
+  if (meet("ca", "phos")) return { level: "no", why: "forman fosfato de calcio, un sólido que tapa los goteros" };
+  if (meet("ca", "sulf")) return { level: "no", why: "forman sulfato de calcio (yeso), que se asienta y tapa los goteros" };
+  if ([a, b].includes("nitrato-potasio") && [a, b].includes("sop")) {
+    return { level: "care", why: "juntos se disuelven menos: usa más agua y revuelve bien" };
+  }
+  return { level: "ok", why: "se pueden mezclar" };
+}
 
 // Fertigation: above ~2 g of fertilizer per litre the water is too salty for the roots.
 const MAX_G_PER_L = 2;
@@ -224,16 +243,33 @@ function compareOptions(input) {
 // Splits the stage's fertilizer into irrigations and checks the salt load per litre of water.
 function calculateFertigation(input, r) {
   if (input.mode !== "greenhouse" || !r.lines.length) return null;
-  const rows = r.lines.map((l) => {
-    const gPerApp = (l.kg * 1000) / input.fgApps;
-    return { name: l.name, id: l.id, gPerApp, gPerL: gPerApp / input.fgWater };
+  const items = r.lines.map((l) => ({ name: l.name, id: l.id, gPerApp: (l.kg * 1000) / input.fgApps }));
+  const pairs = [];
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) pairs.push({ a: items[i], b: items[j], ...compatPair(items[i].id, items[j].id) });
+  }
+  const conflict = pairs.some((p) => p.level === "no");
+  // Incompatible products: calcium goes to tank A, the rest to tank B, each with half of the irrigation water.
+  const isCa = (x) => (COMPAT_TAGS[x.id] || []).includes("ca");
+  const sets = conflict
+    ? [{ label: "Tanque A (calcio)", items: items.filter(isCa) }, { label: "Tanque B (fosfatos y sulfatos)", items: items.filter((x) => !isCa(x)) }]
+    : [{ label: "Tanque", items }];
+  const groups = sets.map((g) => {
+    const water = input.fgWater / sets.length;
+    const tanks = Math.max(1, Math.ceil(water / input.fgTank - 1e-9));
+    const gPerApp = g.items.reduce((s, x) => s + x.gPerApp, 0);
+    const rows = g.items.map((x) => ({ ...x, gPerTank: x.gPerApp / tanks, gPerL: x.gPerApp / water }));
+    return { label: g.label, rows, water, tanks, waterPerTank: water / tanks, gPerApp, gPerL: gPerApp / water };
   });
-  const gPerApp = rows.reduce((s, x) => s + x.gPerApp, 0);
-  const gPerL = gPerApp / input.fgWater;
-  const ids = new Set(rows.map((x) => x.id));
-  // Calcium nitrate + phosphates or sulfates form a solid that clogs the drippers.
-  const clash = ids.has("nitrato-calcio") && ["map", "dap", "sop", "sulfato-amonio"].some((id) => ids.has(id));
-  return { rows, gPerApp, gPerL, minWater: gPerApp / MAX_G_PER_L, tooSalty: gPerL > MAX_G_PER_L, clash };
+  const gPerApp = items.reduce((s, x) => s + x.gPerApp, 0);
+  const gPerL = Math.max(...groups.map((g) => g.gPerL));
+  const maxGroup = Math.max(...groups.map((g) => g.gPerApp));
+  return {
+    groups, pairs, conflict, gPerApp, gPerL,
+    rows: groups.flatMap((g) => g.rows.map((x) => ({ ...x, tank: g.label }))),
+    minWater: (maxGroup * groups.length) / MAX_G_PER_L,
+    tooSalty: gPerL > MAX_G_PER_L,
+  };
 }
 
 // ---------- Form ----------
@@ -266,6 +302,7 @@ function readInput() {
     areaUnit,
     fgApps: Math.max(1, Math.round(num("fgApps", 10))),
     fgWater: Math.max(0.1, num("fgWater", 10)),
+    fgTank: Math.max(0.1, num("fgTank", 20)),
     plantDist: Math.max(0, num("plantDist")),
     plantDistUnit: $("plantDistUnit").value,
     rowDist: Math.max(0, num("rowDist")),
@@ -311,6 +348,7 @@ function writeInput(i) {
   $("ghPlants").value = i.ghPlants || "";
   $("fgApps").value = i.fgApps ?? 10;
   $("fgWater").value = i.fgWater ?? 10;
+  $("fgTank").value = i.fgTank ?? 20;
   $("plantDist").value = i.plantDist || "";
   $("plantDistUnit").value = i.plantDistUnit || "cm";
   $("rowDist").value = i.rowDist || "";
@@ -424,10 +462,11 @@ function buildWarnings(r, input) {
   if (!r.lines.length) w.push("El suelo ya cubre todo lo que pide el cultivo. No necesitas comprar abono.");
   const fg = calculateFertigation(input, r);
   if (fg?.tooSalty) {
-    w.push(`Por riego quedan ${nf(fg.gPerL, 1)} g de abono por litro: es demasiado y puede quemar las raíces. Usa al menos ${nf(fg.minWater, 0)} litros por riego o haz más riegos.`);
+    w.push(`En el tanque quedan ${nf(fg.gPerL, 1)} g de abono por litro: es demasiado y puede quemar las raíces. Usa al menos ${nf(fg.minWater, 0)} litros por riego o haz más riegos.`);
   }
-  if (fg?.clash) {
-    w.push("No mezcles el nitrato de calcio con fosfatos ni sulfatos en el mismo tanque: se forma un sólido que tapa los goteros. Disuélvelos en riegos distintos.");
+  for (const p of fg?.pairs || []) {
+    if (p.level === "no") w.push(`No mezcles ${p.a.name} con ${p.b.name} en el mismo tanque: ${p.why}. La app los separó en Tanque A y Tanque B.`);
+    if (p.level === "care") w.push(`${p.a.name} y ${p.b.name}: ${p.why}.`);
   }
   return w;
 }
@@ -442,15 +481,26 @@ function stageHintText(input) {
 function renderFertigation(fg, input) {
   $("fgResult").hidden = !fg;
   if (!fg) return;
-  $("fgResult").innerHTML = `
-    <p class="lime-title">Mezcla por riego <span>${input.fgApps} riegos</span></p>
-    <p>Disuelve esto en <b>${nf(input.fgWater, 1)} litros</b> (${nf(input.fgWater * 1000, 0)} ml) de agua en cada riego:</p>
+  const liters = (v) => `${nf(v, 1)} L`;
+  const group = (g) => `
+    ${fg.groups.length > 1 ? `<p><b>${g.label}</b></p>` : ""}
+    <p>${g.tanks === 1
+      ? `Llena el tanque de ${liters(input.fgTank)} con <b>${liters(g.waterPerTank)}</b> (${nf(g.waterPerTank * 1000, 0)} ml) de agua y disuelve:`
+      : `El tanque de ${liters(input.fgTank)} no alcanza: prepara <b>${g.tanks} tandas</b> de ${liters(g.waterPerTank)} cada una, y en cada tanda disuelve:`}</p>
     <table class="mini">
-      <thead><tr><th>Abono</th><th>Por riego</th><th>Por litro</th></tr></thead>
-      <tbody>${fg.rows.map((x) => `<tr><td>${x.name}</td><td>${grams(x.gPerApp)}</td><td>${nf(x.gPerL, 2)} g</td></tr>`).join("")}
-        <tr><td><b>Total</b></td><td><b>${grams(fg.gPerApp)}</b></td><td><b>${nf(fg.gPerL, 2)} g</b></td></tr></tbody>
-    </table>
-    <p>${fg.tooSalty ? `Pasa de ${MAX_G_PER_L} g/L: usa más agua o más riegos.` : `Está por debajo de ${MAX_G_PER_L} g/L, una mezcla segura para las raíces.`}</p>`;
+      <thead><tr><th>Abono</th><th>Por tanque</th><th>Por riego</th><th>Por litro</th></tr></thead>
+      <tbody>${g.rows.map((x) => `<tr><td>${x.name}</td><td>${grams(x.gPerTank)}</td><td>${grams(x.gPerApp)}</td><td>${nf(x.gPerL, 2)} g</td></tr>`).join("")}</tbody>
+    </table>`;
+  const icon = { ok: "✓", care: "!", no: "✗" };
+  const compat = fg.pairs.length
+    ? `<ul class="compat">${fg.pairs.map((p) => `<li class="c-${p.level}"><span>${icon[p.level]}</span> ${p.a.name} + ${p.b.name}: ${p.why}</li>`).join("")}</ul>`
+    : "";
+  $("fgResult").innerHTML = `
+    <p class="lime-title">Mezcla por riego <span>${input.fgApps} riegos de ${liters(input.fgWater)}</span></p>
+    ${fg.groups.map(group).join("")}
+    ${fg.conflict ? `<p>Riega con el Tanque A y luego con el Tanque B. Nunca juntes los dos en el mismo recipiente.</p>` : ""}
+    <p>${fg.tooSalty ? `Pasa de ${MAX_G_PER_L} g/L: usa más agua o más riegos.` : `Está por debajo de ${MAX_G_PER_L} g/L, una mezcla segura para las raíces.`}</p>
+    ${compat ? `<p class="lime-title">Compatibilidad en el tanque</p>${compat}` : ""}`;
 }
 
 function renderPlants(plants, r, input, fg) {
@@ -572,6 +622,18 @@ function renderFertTable() {
   }).join("");
 }
 
+function renderCompatTable() {
+  const soluble = FERTILIZERS.filter((f) => f.soluble);
+  const list = (f, level) => soluble.filter((o) => o.id !== f.id && compatPair(f.id, o.id).level === level)
+    .map((o) => o.name).join(", ") || "—";
+  $("compatBody").innerHTML = soluble.map((f) => `<tr>
+      <td><b>${f.name}</b></td>
+      <td class="c-no">${list(f, "no")}</td>
+      <td class="c-care">${list(f, "care")}</td>
+      <td class="soil">${list(f, "ok")}</td>
+    </tr>`).join("");
+}
+
 function renderCropTable(query = "") {
   const q = query.trim().toLowerCase();
   $("cropBody").innerHTML = CROPS
@@ -652,8 +714,9 @@ function exportExcel() {
     ["TOTAL", "", "", r.lines.reduce((s, l) => s + l.sacks, 0) + (r.lime ? r.lime.sacks : 0), "", round(r.total), round(r.totalSacks)],
     ["Costo por hectárea (USD)", round(r.total / input.area)],
     ...(r.lime ? [[], ["Encalado"], ["pH objetivo", round(r.lime.target, 1)], ["CaCO₃ equivalente (t/ha)", round(r.lime.caco3Tha)], ["Método", r.lime.method]] : []),
-    ...(fg ? [[], [`Fertirriego: ${input.fgApps} riegos de ${input.fgWater} L`], ["Abono", "g por riego", "g por litro"],
-      ...fg.rows.map((x) => [x.name, round(x.gPerApp, 1), round(x.gPerL)]), ["Total", round(fg.gPerApp, 1), round(fg.gPerL)]] : []),
+    ...(fg ? [[], [`Fertirriego: ${input.fgApps} riegos de ${input.fgWater} L, tanque de ${input.fgTank} L`], ["Tanque", "Abono", "g por tanque", "g por riego", "g por litro"],
+      ...fg.rows.map((x) => [x.tank, x.name, round(x.gPerTank, 1), round(x.gPerApp, 1), round(x.gPerL)]),
+      ...fg.pairs.map((p) => ["Compatibilidad", `${p.a.name} + ${p.b.name}`, p.level === "ok" ? "Sí" : p.level === "care" ? "Con cuidado" : "No", p.why])] : []),
     ...(plants ? [[], ["Plantas por hectárea", Math.round(plants.perHa)], ["Plantas en la superficie", Math.round(plants.total)]] : []),
   ];
 
@@ -795,11 +858,15 @@ function exportPdf() {
 
   const fg = calculateFertigation(input, r);
   if (fg) {
-    heading(`Fertirriego: ${input.fgApps} riegos de ${nf(input.fgWater, 0)} litros`);
-    table(["Abono", "Por riego", "Por litro"], [
-      ...fg.rows.map((x) => [x.name, grams(x.gPerApp), `${nf(x.gPerL, 2)} g`]),
-      ["Total", grams(fg.gPerApp), `${nf(fg.gPerL, 2)} g`],
-    ], { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } } });
+    heading(`Fertirriego: ${input.fgApps} riegos de ${nf(input.fgWater, 1)} L, tanque de ${nf(input.fgTank, 1)} L`);
+    table(["Tanque", "Abono", "Por tanque", "Por riego", "Por litro"],
+      fg.rows.map((x) => [x.tank, x.name, grams(x.gPerTank), grams(x.gPerApp), `${nf(x.gPerL, 2)} g`]),
+      { columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } } });
+    if (fg.pairs.length) {
+      heading("Compatibilidad en el tanque");
+      table(["Mezcla", "¿Se puede?", "Por qué"], fg.pairs.map((p) => [`${p.a.name} + ${p.b.name}`,
+        p.level === "ok" ? "Sí" : p.level === "care" ? "Con cuidado" : "No", p.why]));
+    }
   }
 
   const plants = calculatePlants(input);
@@ -954,6 +1021,7 @@ function applyPreset(preset) {
   if (!p) return;
   const dims = p.dims;
   $("fgWater").value = p.water;
+  $("fgTank").value = p.tank;
   $("ghWidth").value = dims[0];
   $("ghLength").value = dims[1];
   $("ghWidthUnit").value = "m";
@@ -1061,6 +1129,7 @@ function init() {
     el.addEventListener("click", (e) => { e.preventDefault(); showTab(el.dataset.tab); }));
 
   renderFertTable();
+  renderCompatTable();
   renderCropTable();
   renderHistory();
   render();

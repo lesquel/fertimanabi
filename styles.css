@@ -359,3 +359,14 @@ input:focus, select:focus { outline: none; border-color: var(--leaf); box-shadow
 /* Greenhouse mode */
 .gh-size { display: grid; gap: 12px; }
 .buy.no-sacks th:nth-child(3), .buy.no-sacks td:nth-child(3) { display: none; }
+
+/* Tank compatibility */
+.compat { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 0.88rem; color: var(--panel-muted); }
+.compat span { display: inline-grid; place-items: center; width: 1.3em; height: 1.3em; border-radius: 50%; font-weight: 700; margin-right: 4px; font-size: 0.8rem; }
+.compat .c-ok span { background: var(--n); color: #fff; }
+.compat .c-care span { background: var(--p); color: #1c1206; }
+.compat .c-no span { background: #c0392b; color: #fff; }
+.compat .c-no { color: var(--panel-ink); }
+.compat-head { margin-top: clamp(32px, 5vw, 56px); }
+.db td.c-no { color: #b03a2e; font-weight: 700; }
+.db td.c-care { color: var(--p); }
