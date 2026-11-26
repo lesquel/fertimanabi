@@ -32,6 +32,9 @@ const STAGES = {
   flowering: { name: "Floración y llenado", share: { n: 0.3, p: 0.15, k: 0.35 } },
 };
 
+// Greenhouse size presets in metres (width × length). Every size stays editable.
+const GH_PRESETS = { mini: [1, 2], small: [3, 6], large: [8, 25] };
+
 // Fertigation: above ~2 g of fertilizer per litre the water is too salty for the roots.
 const MAX_G_PER_L = 2;
 
@@ -55,7 +58,7 @@ const money = (v) => "$" + v.toLocaleString("es-EC", { minimumFractionDigits: 2,
 const kg = (v) => v.toLocaleString("es-EC", { maximumFractionDigits: 1 });
 const nf = (v, d = 2) => v.toLocaleString("es-EC", { maximumFractionDigits: d });
 // Small amounts (greenhouse) read better in grams.
-const weight = (kgValue) => (kgValue < 1 ? `${nf(kgValue * 1000, 0)} g` : `${kg(kgValue)} kg`);
+const weight = (kgValue, mode) => (kgValue < 1 || mode === "greenhouse" ? `${nf(kgValue * 1000, kgValue < 0.01 ? 1 : 0)} g` : `${kg(kgValue)} kg`);
 const areaLabel = (value, unit) => `${nf(value)} ${value === 1 ? AREA_UNITS[unit].one : AREA_UNITS[unit].many}`;
 const num = (id, fallback = 0) => {
   const v = parseFloat($(id).value);
@@ -98,6 +101,9 @@ const stageOf = (input) => STAGES[input.stage] || STAGES.cycle;
 // ---------- Plant density ----------
 // plants/ha = 10 000 m² / (distance between plants × distance between rows) × plants per site × usable share.
 function calculatePlants(input) {
+  if (input.mode === "greenhouse") {
+    return input.ghPlants > 0 ? { perHa: input.ghPlants / input.area, total: input.ghPlants, counted: true } : null;
+  }
   const toM = (v, unit) => (unit === "m" ? v : v / 100);
   const plant = toM(input.plantDist, input.plantDistUnit);
   const row = toM(input.rowDist, input.rowDistUnit);
@@ -231,16 +237,28 @@ const setRadio = (name, value) => {
 };
 
 function readInput() {
-  const areaUnit = AREA_UNITS[$("areaUnit").value] ? $("areaUnit").value : "ha";
-  const areaValue = Math.max(0.0001, num("area", 1));
+  const mode = radio("mode") || "field";
+  const toM = (v, unit) => (unit === "cm" ? v / 100 : v);
+  const ghWidth = Math.max(0, num("ghWidth"));
+  const ghLength = Math.max(0, num("ghLength"));
+  const ghM2 = Math.max(0.01, toM(ghWidth, $("ghWidthUnit").value) * toM(ghLength, $("ghLengthUnit").value));
+  // In greenhouse mode the area comes from width × length, always in m².
+  const areaUnit = mode === "greenhouse" ? "m2" : AREA_UNITS[$("areaUnit").value] ? $("areaUnit").value : "ha";
+  const areaValue = mode === "greenhouse" ? ghM2 : Math.max(0.0001, num("area", 1));
   return {
+    ghPreset: radio("ghPreset") || "custom",
+    ghWidth, ghWidthUnit: $("ghWidthUnit").value,
+    ghLength, ghLengthUnit: $("ghLengthUnit").value,
+    ghPlants: Math.max(0, Math.round(num("ghPlants"))),
+    fieldArea: Math.max(0.0001, num("area", 1)),
+    fieldAreaUnit: AREA_UNITS[$("areaUnit").value] ? $("areaUnit").value : "ha",
     cropId: $("cropSelect").value,
-    mode: radio("mode") || "field",
+    mode,
     stage: radio("stage") || "cycle",
     areaValue,
     areaUnit,
     fgApps: Math.max(1, Math.round(num("fgApps", 10))),
-    fgWater: Math.max(1, num("fgWater", 200)),
+    fgWater: Math.max(0.1, num("fgWater", 10)),
     plantDist: Math.max(0, num("plantDist")),
     plantDistUnit: $("plantDistUnit").value,
     rowDist: Math.max(0, num("rowDist")),
@@ -276,10 +294,16 @@ function writeInput(i) {
   setRadio("mode", i.mode || "field");
   setRadio("stage", i.stage || "cycle");
   fillSourceSelects();
-  $("areaUnit").value = i.areaUnit || "ha";
-  $("area").value = i.areaValue ?? i.area;
+  $("areaUnit").value = i.fieldAreaUnit || (i.mode === "greenhouse" ? "ha" : i.areaUnit) || "ha";
+  $("area").value = i.fieldArea ?? (i.mode === "greenhouse" ? 1 : i.areaValue ?? i.area);
+  setRadio("ghPreset", i.ghPreset || "mini");
+  $("ghWidth").value = i.ghWidth ?? 1;
+  $("ghWidthUnit").value = i.ghWidthUnit || "m";
+  $("ghLength").value = i.ghLength ?? 2;
+  $("ghLengthUnit").value = i.ghLengthUnit || "m";
+  $("ghPlants").value = i.ghPlants || "";
   $("fgApps").value = i.fgApps ?? 10;
-  $("fgWater").value = i.fgWater ?? 200;
+  $("fgWater").value = i.fgWater ?? 10;
   $("plantDist").value = i.plantDist || "";
   $("plantDistUnit").value = i.plantDistUnit || "cm";
   $("rowDist").value = i.rowDist || "";
@@ -331,7 +355,10 @@ function fillSourceSelects() {
   }
   $("solubleHint").hidden = mode !== "greenhouse";
   $("fertigation").hidden = mode !== "greenhouse";
-  $("densityN").textContent = mode === "greenhouse" ? "5" : "4";
+  $("densityStep").hidden = mode === "greenhouse";
+  $("ghSize").hidden = mode !== "greenhouse";
+  $("areaField").hidden = mode === "greenhouse";
+  document.querySelector(".buy").classList.toggle("no-sacks", mode === "greenhouse");
 }
 
 function fillLimeSelect() {
@@ -410,7 +437,7 @@ function renderFertigation(fg, input) {
   if (!fg) return;
   $("fgResult").innerHTML = `
     <p class="lime-title">Mezcla por riego <span>${input.fgApps} riegos</span></p>
-    <p>Disuelve esto en <b>${nf(input.fgWater, 0)} litros</b> de agua en cada riego:</p>
+    <p>Disuelve esto en <b>${nf(input.fgWater, 1)} litros</b> (${nf(input.fgWater * 1000, 0)} ml) de agua en cada riego:</p>
     <table class="mini">
       <thead><tr><th>Abono</th><th>Por riego</th><th>Por litro</th></tr></thead>
       <tbody>${fg.rows.map((x) => `<tr><td>${x.name}</td><td>${nf(x.gPerApp, 1)} g</td><td>${nf(x.gPerL, 2)} g</td></tr>`).join("")}
@@ -425,9 +452,15 @@ function renderPlants(plants, r, input, fg) {
   const fertKg = r.lines.reduce((s, l) => s + l.kg, 0);
   const perPlant = plants.total >= 1 ? (fertKg * 1000) / plants.total : 0;
   const perApp = fg ? perPlant / input.fgApps : null;
+  const when = input.stage === "cycle" ? "el ciclo" : "esta etapa";
+  const head = plants.counted
+    ? `${nf(plants.total, 0)} plantas en ${nf(input.areaValue, 2)} m² (${nf(plants.total / input.areaValue, 1)} por m²).`
+    : `${nf(Math.round(plants.perHa), 0)} plantas por hectárea.`;
+  // Fertigation: each plant receives its share of the tank, shown in millilitres.
+  const mlPerPlant = fg ? (input.fgWater * 1000) / plants.total : null;
   $("plants").innerHTML = `
     <p class="lime-title">Plantas <span>${nf(Math.round(plants.total), 0)}</span></p>
-    <p>${nf(Math.round(plants.perHa), 0)} plantas por hectárea. A cada planta le tocan <b>${nf(perPlant, 1)} g</b> de abono en ${input.stage === "cycle" ? "el ciclo" : "esta etapa"}${perApp !== null ? `, unos ${nf(perApp, 2)} g en cada riego` : ""}.</p>`;
+    <p>${head} A cada planta le tocan <b>${nf(perPlant, 1)} g</b> de abono en ${when}${perApp !== null ? `: <b>${nf(perApp, 2)} g</b> por riego, disueltos en unos <b>${nf(mlPerPlant, 0)} ml</b> de agua` : ""}.</p>`;
 }
 
 function render() {
@@ -442,6 +475,7 @@ function render() {
   const haTxt = input.areaUnit === "ha" ? "" : ` (${nf(input.area, 4)} ha)`;
   const stageTxt = input.stage === "cycle" ? "" : `, etapa: ${r.stage.name.toLowerCase()}`;
   $("resultCrop").textContent = `${r.crop.name} en ${areaTxt}${haTxt}${stageTxt}`;
+  $("ghArea").textContent = `Área del invernadero: ${nf(input.areaValue, 2)} m² (${nf(input.area, 6)} ha).`;
   $("areaEquiv").textContent = input.areaUnit === "ha"
     ? `= ${nf(input.area * 10000, 0)} m²`
     : `= ${nf(input.area, 4)} ha (${nf(input.area * 10000, 0)} m²)`;
@@ -453,7 +487,7 @@ function render() {
     ? `Comprando por kilo en el almacén. Por m²: ${money(r.total / (input.area * 10000))}.`
     : `Comprando sacos completos: ${money(r.totalSacks)}. Por hectárea: ${money(r.total / input.area)}.`;
   $("totalSub").textContent = r.lines.length || r.lime ? `${perUnit}${parts}` : "";
-  const rows = r.lines.map((l) => `<tr><td>${l.name}</td><td>${weight(l.kg)}</td><td>${l.sacks}</td><td>${money(l.cost)}</td></tr>`);
+  const rows = r.lines.map((l) => `<tr><td>${l.name}</td><td>${weight(l.kg, input.mode)}</td><td>${l.sacks}</td><td>${money(l.cost)}</td></tr>`);
   if (r.lime) rows.push(`<tr class="lime-row"><td>${r.lime.name}</td><td>${weight(r.lime.kg)}</td><td>${r.lime.sacks}</td><td>${money(r.lime.cost)}</td></tr>`);
   $("buyBody").innerHTML = rows.length ? rows.join("") : `<tr><td colspan="4" class="empty">Nada que comprar</td></tr>`;
   renderLime(r.lime, input);
@@ -489,7 +523,7 @@ function renderCompare(input, r) {
   const mineRank = options.findIndex((o) => o.key === mineKey);
   const shown = mineRank >= 5 ? [...top, options[mineRank]] : top;
   const mixText = (o) => o.lines.length
-    ? o.lines.map((l) => `${l.name}: ${weight(l.kg)}`).join("<br>")
+    ? o.lines.map((l) => `${l.name}: ${weight(l.kg, input.mode)}`).join("<br>")
     : "Sin abono";
   const surplusText = (o) => NUTRIENTS
     .filter(({ key }) => o.surplus[key] > 1)
@@ -733,7 +767,7 @@ function exportPdf() {
     NUTRIENTS.map(({ key, label }) => [label, kg(r.req[key]), kg(r.soil[key]), kg(r.deficit[key]), fertById(input.sources[key]).name]));
 
   heading(`Lista de compra para ${areaLabel(input.areaValue, input.areaUnit)}`);
-  const buyRows = r.lines.map((l) => [l.name, weight(l.kg), String(l.sacks), money(l.cost)]);
+  const buyRows = r.lines.map((l) => [l.name, weight(l.kg, input.mode), String(l.sacks), money(l.cost)]);
   if (r.lime) buyRows.push([r.lime.name, weight(r.lime.kg), String(r.lime.sacks), money(r.lime.cost)]);
   table(["Producto", "Cantidad", "Sacos de 50 kg", "Costo"],
     buyRows.length ? buyRows : [["Nada que comprar", "", "", ""]],
@@ -898,11 +932,19 @@ function convertArea(to = $("areaUnit").value) {
   $("area").value = +(m2 / AREA_UNITS[to].m2).toFixed(4);
 }
 
-// A greenhouse is measured in m² and uses only soluble fertilizers.
-function switchMode(mode) {
+// Greenhouse mode measures width × length and uses only soluble fertilizers.
+function switchMode() {
   fillSourceSelects();
-  if (mode === "greenhouse" && $("areaUnit").value === "ha") convertArea("m2");
-  if (mode === "field" && $("areaUnit").value === "m2") convertArea("ha");
+}
+
+// A preset fills the dimensions; typing a dimension turns the preset into "Personalizado".
+function applyPreset(preset) {
+  const dims = GH_PRESETS[preset];
+  if (!dims) return;
+  $("ghWidth").value = dims[0];
+  $("ghLength").value = dims[1];
+  $("ghWidthUnit").value = "m";
+  $("ghLengthUnit").value = "m";
 }
 
 function init() {
@@ -924,6 +966,8 @@ function init() {
     }
     if (e.target.name === "mode") switchMode(e.target.value);
     if (e.target.id === "areaUnit") convertArea();
+    if (e.target.name === "ghPreset") applyPreset(e.target.value);
+    if (["ghWidth", "ghLength", "ghWidthUnit", "ghLengthUnit"].includes(e.target.id)) setRadio("ghPreset", "custom");
     render();
   });
   $("calcForm").addEventListener("submit", (e) => e.preventDefault());

@@ -48,10 +48,31 @@
               <span>¿Dónde vas a sembrar?</span>
               <div class="chips" role="radiogroup" aria-label="Tipo de producción">
                 <label class="chip"><input type="radio" name="mode" value="field" checked><span>Campo abierto <small>abono al suelo, en sacos</small></span></label>
-                <label class="chip"><input type="radio" name="mode" value="greenhouse"><span>Invernadero pequeño <small>abono disuelto en agua (fertirriego)</small></span></label>
+                <label class="chip"><input type="radio" name="mode" value="greenhouse"><span>Modo invernadero <small>abono disuelto en agua (fertirriego)</small></span></label>
               </div>
             </div>
-            <label class="field field-area">
+            <div id="ghSize" class="gh-size" hidden>
+              <div class="field">
+                <span>Tamaño del invernadero</span>
+                <div class="chips chips-4" role="radiogroup" aria-label="Tamaño del invernadero">
+                  <label class="chip"><input type="radio" name="ghPreset" value="mini" checked><span>Mini <small>1 × 2 m</small></span></label>
+                  <label class="chip"><input type="radio" name="ghPreset" value="small"><span>Pequeño <small>3 × 6 m</small></span></label>
+                  <label class="chip"><input type="radio" name="ghPreset" value="large"><span>Grande <small>8 × 25 m</small></span></label>
+                  <label class="chip"><input type="radio" name="ghPreset" value="custom"><span>Personalizado <small>tus medidas</small></span></label>
+                </div>
+              </div>
+              <div class="row3">
+                <label class="field"><span>Ancho</span>
+                  <div class="combo"><input id="ghWidth" type="number" min="0" step="any" value="1" inputmode="decimal"><select id="ghWidthUnit" aria-label="Unidad del ancho"><option value="m">m</option><option value="cm">cm</option></select></div>
+                </label>
+                <label class="field"><span>Largo</span>
+                  <div class="combo"><input id="ghLength" type="number" min="0" step="any" value="2" inputmode="decimal"><select id="ghLengthUnit" aria-label="Unidad del largo"><option value="m">m</option><option value="cm">cm</option></select></div>
+                </label>
+                <label class="field"><span>Plantas <small>cuántas vas a sembrar</small></span><input id="ghPlants" type="number" min="0" step="1" placeholder="Ej. 12" inputmode="numeric"></label>
+              </div>
+              <small id="ghArea" class="equiv"></small>
+            </div>
+            <label id="areaField" class="field field-area">
               <span>Superficie a fertilizar</span>
               <div class="combo">
                 <input id="area" type="number" min="0.0001" step="any" value="1" inputmode="decimal">
@@ -146,13 +167,13 @@
             <p class="hint">El abono de la etapa se reparte en varios riegos. Disuélvelo en el tanque y riega como siempre.</p>
             <div class="row3">
               <label class="field"><span>Riegos con abono <small>en la etapa</small></span><input id="fgApps" type="number" min="1" step="1" value="10" inputmode="numeric"></label>
-              <label class="field"><span>Agua por riego <small>litros</small></span><input id="fgWater" type="number" min="1" step="1" value="200" inputmode="numeric"></label>
+              <label class="field"><span>Agua por riego <small>litros</small></span><input id="fgWater" type="number" min="0.1" step="any" value="10" inputmode="decimal"></label>
               <span></span>
             </div>
           </fieldset>
 
-          <fieldset class="step">
-            <legend><span id="densityN" class="step-n">4</span> Densidad de siembra <small class="opt">opcional</small></legend>
+          <fieldset id="densityStep" class="step">
+            <legend><span class="step-n">4</span> Densidad de siembra <small class="opt">opcional</small></legend>
             <p class="hint">Llénalo si quieres saber cuántas plantas caben y cuánto abono le toca a cada una.</p>
             <div class="row3">
               <label class="field"><span>Entre plantas</span>
@@ -185,7 +206,7 @@
           </div>
 
           <table class="buy">
-            <thead><tr><th>Fertilizante</th><th>Cantidad</th><th>Sacos</th><th>Costo</th></tr></thead>
+            <thead><tr><th>Fertilizante</th><th>Cantidad</th><th class="col-sacks">Sacos</th><th>Costo</th></tr></thead>
             <tbody id="buyBody"></tbody>
           </table>
 

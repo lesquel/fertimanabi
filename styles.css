@@ -355,3 +355,7 @@ input:focus, select:focus { outline: none; border-color: var(--leaf); box-shadow
 .wx-day b { font: 700 1.05rem var(--display); }
 .wx-day .tag { justify-self: start; font-size: 0.78rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--leaf); color: var(--surface); }
 .wx-day .tag.bad { background: var(--p); color: #1c1206; }
+
+/* Greenhouse mode */
+.gh-size { display: grid; gap: 12px; }
+.buy.no-sacks th:nth-child(3), .buy.no-sacks td:nth-child(3) { display: none; }
