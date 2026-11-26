@@ -33,7 +33,12 @@ const STAGES = {
 };
 
 // Greenhouse size presets in metres (width × length). Every size stays editable.
-const GH_PRESETS = { mini: [1, 2], small: [3, 6], large: [8, 25] };
+// Each preset also suggests the litres of water per irrigation for that size.
+const GH_PRESETS = {
+  home: { dims: [1, 2], water: 10 },
+  small: { dims: [4, 10], water: 100 },
+  large: { dims: [20, 50], water: 2000 },
+};
 
 // Fertigation: above ~2 g of fertilizer per litre the water is too salty for the roots.
 const MAX_G_PER_L = 2;
@@ -58,7 +63,9 @@ const money = (v) => "$" + v.toLocaleString("es-EC", { minimumFractionDigits: 2,
 const kg = (v) => v.toLocaleString("es-EC", { maximumFractionDigits: 1 });
 const nf = (v, d = 2) => v.toLocaleString("es-EC", { maximumFractionDigits: d });
 // Small amounts (greenhouse) read better in grams.
-const weight = (kgValue, mode) => (kgValue < 1 || mode === "greenhouse" ? `${nf(kgValue * 1000, kgValue < 0.01 ? 1 : 0)} g` : `${kg(kgValue)} kg`);
+const weight = (kgValue) => (kgValue < 1 ? `${nf(kgValue * 1000, kgValue < 0.01 ? 1 : 0)} g` : `${kg(kgValue)} kg`);
+// Grams for a home greenhouse, kilos once a large one needs more than 1 000 g.
+const grams = (g, d = 1) => (g >= 1000 ? `${nf(g / 1000, 2)} kg` : `${nf(g, d)} g`);
 const areaLabel = (value, unit) => `${nf(value)} ${value === 1 ? AREA_UNITS[unit].one : AREA_UNITS[unit].many}`;
 const num = (id, fallback = 0) => {
   const v = parseFloat($(id).value);
@@ -296,7 +303,7 @@ function writeInput(i) {
   fillSourceSelects();
   $("areaUnit").value = i.fieldAreaUnit || (i.mode === "greenhouse" ? "ha" : i.areaUnit) || "ha";
   $("area").value = i.fieldArea ?? (i.mode === "greenhouse" ? 1 : i.areaValue ?? i.area);
-  setRadio("ghPreset", i.ghPreset || "mini");
+  setRadio("ghPreset", i.ghPreset === "mini" ? "home" : i.ghPreset || "home");
   $("ghWidth").value = i.ghWidth ?? 1;
   $("ghWidthUnit").value = i.ghWidthUnit || "m";
   $("ghLength").value = i.ghLength ?? 2;
@@ -358,7 +365,7 @@ function fillSourceSelects() {
   $("densityStep").hidden = mode === "greenhouse";
   $("ghSize").hidden = mode !== "greenhouse";
   $("areaField").hidden = mode === "greenhouse";
-  document.querySelector(".buy").classList.toggle("no-sacks", mode === "greenhouse");
+
 }
 
 function fillLimeSelect() {
@@ -440,8 +447,8 @@ function renderFertigation(fg, input) {
     <p>Disuelve esto en <b>${nf(input.fgWater, 1)} litros</b> (${nf(input.fgWater * 1000, 0)} ml) de agua en cada riego:</p>
     <table class="mini">
       <thead><tr><th>Abono</th><th>Por riego</th><th>Por litro</th></tr></thead>
-      <tbody>${fg.rows.map((x) => `<tr><td>${x.name}</td><td>${nf(x.gPerApp, 1)} g</td><td>${nf(x.gPerL, 2)} g</td></tr>`).join("")}
-        <tr><td><b>Total</b></td><td><b>${nf(fg.gPerApp, 1)} g</b></td><td><b>${nf(fg.gPerL, 2)} g</b></td></tr></tbody>
+      <tbody>${fg.rows.map((x) => `<tr><td>${x.name}</td><td>${grams(x.gPerApp)}</td><td>${nf(x.gPerL, 2)} g</td></tr>`).join("")}
+        <tr><td><b>Total</b></td><td><b>${grams(fg.gPerApp)}</b></td><td><b>${nf(fg.gPerL, 2)} g</b></td></tr></tbody>
     </table>
     <p>${fg.tooSalty ? `Pasa de ${MAX_G_PER_L} g/L: usa más agua o más riegos.` : `Está por debajo de ${MAX_G_PER_L} g/L, una mezcla segura para las raíces.`}</p>`;
 }
@@ -460,7 +467,7 @@ function renderPlants(plants, r, input, fg) {
   const mlPerPlant = fg ? (input.fgWater * 1000) / plants.total : null;
   $("plants").innerHTML = `
     <p class="lime-title">Plantas <span>${nf(Math.round(plants.total), 0)}</span></p>
-    <p>${head} A cada planta le tocan <b>${nf(perPlant, 1)} g</b> de abono en ${when}${perApp !== null ? `: <b>${nf(perApp, 2)} g</b> por riego, disueltos en unos <b>${nf(mlPerPlant, 0)} ml</b> de agua` : ""}.</p>`;
+    <p>${head} A cada planta le tocan <b>${grams(perPlant)}</b> de abono en ${when}${perApp !== null ? `: <b>${grams(perApp, 2)}</b> por riego, disueltos en unos <b>${nf(mlPerPlant, 0)} ml</b> de agua` : ""}.</p>`;
 }
 
 function render() {
@@ -483,11 +490,15 @@ function render() {
   $("totalCost").textContent = money(r.total);
   const parts = r.lime ? ` Abono ${money(r.fertTotal)} y cal ${money(r.lime.cost)}.` : "";
   // A small greenhouse buys by the kilo, so full sacks would overstate the cost.
+  // A home or small greenhouse buys by the kilo; a large one already needs full sacks.
+  const fertKg = r.lines.reduce((s, l) => s + l.kg, 0);
+  const bySacks = input.mode !== "greenhouse" || fertKg >= SACK_KG;
+  document.querySelector(".buy").classList.toggle("no-sacks", !bySacks);
   const perUnit = input.mode === "greenhouse"
-    ? `Comprando por kilo en el almacén. Por m²: ${money(r.total / (input.area * 10000))}.`
+    ? `${bySacks ? `Comprando sacos completos: ${money(r.totalSacks)}` : "Comprando por kilo en el almacén"}. Por m²: ${money(r.total / (input.area * 10000))}.`
     : `Comprando sacos completos: ${money(r.totalSacks)}. Por hectárea: ${money(r.total / input.area)}.`;
   $("totalSub").textContent = r.lines.length || r.lime ? `${perUnit}${parts}` : "";
-  const rows = r.lines.map((l) => `<tr><td>${l.name}</td><td>${weight(l.kg, input.mode)}</td><td>${l.sacks}</td><td>${money(l.cost)}</td></tr>`);
+  const rows = r.lines.map((l) => `<tr><td>${l.name}</td><td>${weight(l.kg)}</td><td>${l.sacks}</td><td>${money(l.cost)}</td></tr>`);
   if (r.lime) rows.push(`<tr class="lime-row"><td>${r.lime.name}</td><td>${weight(r.lime.kg)}</td><td>${r.lime.sacks}</td><td>${money(r.lime.cost)}</td></tr>`);
   $("buyBody").innerHTML = rows.length ? rows.join("") : `<tr><td colspan="4" class="empty">Nada que comprar</td></tr>`;
   renderLime(r.lime, input);
@@ -523,7 +534,7 @@ function renderCompare(input, r) {
   const mineRank = options.findIndex((o) => o.key === mineKey);
   const shown = mineRank >= 5 ? [...top, options[mineRank]] : top;
   const mixText = (o) => o.lines.length
-    ? o.lines.map((l) => `${l.name}: ${weight(l.kg, input.mode)}`).join("<br>")
+    ? o.lines.map((l) => `${l.name}: ${weight(l.kg)}`).join("<br>")
     : "Sin abono";
   const surplusText = (o) => NUTRIENTS
     .filter(({ key }) => o.surplus[key] > 1)
@@ -767,7 +778,7 @@ function exportPdf() {
     NUTRIENTS.map(({ key, label }) => [label, kg(r.req[key]), kg(r.soil[key]), kg(r.deficit[key]), fertById(input.sources[key]).name]));
 
   heading(`Lista de compra para ${areaLabel(input.areaValue, input.areaUnit)}`);
-  const buyRows = r.lines.map((l) => [l.name, weight(l.kg, input.mode), String(l.sacks), money(l.cost)]);
+  const buyRows = r.lines.map((l) => [l.name, weight(l.kg), String(l.sacks), money(l.cost)]);
   if (r.lime) buyRows.push([r.lime.name, weight(r.lime.kg), String(r.lime.sacks), money(r.lime.cost)]);
   table(["Producto", "Cantidad", "Sacos de 50 kg", "Costo"],
     buyRows.length ? buyRows : [["Nada que comprar", "", "", ""]],
@@ -786,8 +797,8 @@ function exportPdf() {
   if (fg) {
     heading(`Fertirriego: ${input.fgApps} riegos de ${nf(input.fgWater, 0)} litros`);
     table(["Abono", "Por riego", "Por litro"], [
-      ...fg.rows.map((x) => [x.name, `${nf(x.gPerApp, 1)} g`, `${nf(x.gPerL, 2)} g`]),
-      ["Total", `${nf(fg.gPerApp, 1)} g`, `${nf(fg.gPerL, 2)} g`],
+      ...fg.rows.map((x) => [x.name, grams(x.gPerApp), `${nf(x.gPerL, 2)} g`]),
+      ["Total", grams(fg.gPerApp), `${nf(fg.gPerL, 2)} g`],
     ], { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } } });
   }
 
@@ -939,8 +950,10 @@ function switchMode() {
 
 // A preset fills the dimensions; typing a dimension turns the preset into "Personalizado".
 function applyPreset(preset) {
-  const dims = GH_PRESETS[preset];
-  if (!dims) return;
+  const p = GH_PRESETS[preset];
+  if (!p) return;
+  const dims = p.dims;
+  $("fgWater").value = p.water;
   $("ghWidth").value = dims[0];
   $("ghLength").value = dims[1];
   $("ghWidthUnit").value = "m";
