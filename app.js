@@ -12,10 +12,51 @@ const NUTRIENTS = [
   { key: "k", label: "K₂O", name: "Potasio" },
 ];
 const DEFAULT_SOURCES = { p: "sft", k: "kcl", n: "urea" };
+const GREENHOUSE_SOURCES = { p: "map", k: "nitrato-potasio", n: "nitrato-calcio" };
+
+// Area units used in Manabí, in square metres.
+const AREA_UNITS = {
+  ha: { one: "hectárea", many: "hectáreas", m2: 10000 },
+  m2: { one: "m²", many: "m²", m2: 1 },
+  cuadra: { one: "cuadra", many: "cuadras", m2: 7056 },
+  manzana: { one: "manzana", many: "manzanas", m2: 6989 },
+  acre: { one: "acre", many: "acres", m2: 4047 },
+};
+
+// Share of the cycle's N, P2O5 and K2O applied in each stage (reference split).
+// P goes mostly at planting (roots), N peaks in vegetative growth, K in vegetative growth and fruit filling.
+const STAGES = {
+  cycle: { name: "Ciclo completo", share: { n: 1, p: 1, k: 1 } },
+  seeding: { name: "Siembra y establecimiento", share: { n: 0.25, p: 0.6, k: 0.3 } },
+  vegetative: { name: "Crecimiento vegetativo", share: { n: 0.45, p: 0.25, k: 0.35 } },
+  flowering: { name: "Floración y llenado", share: { n: 0.3, p: 0.15, k: 0.35 } },
+};
+
+// Fertigation: above ~2 g of fertilizer per litre the water is too salty for the roots.
+const MAX_G_PER_L = 2;
+
+// Weather forecast places (Open-Meteo, free and without an API key).
+const PLACES = [
+  { id: "portoviejo", name: "Portoviejo", lat: -1.054, lon: -80.454 },
+  { id: "manta", name: "Manta", lat: -0.967, lon: -80.709 },
+  { id: "chone", name: "Chone", lat: -0.698, lon: -80.094 },
+  { id: "el-carmen", name: "El Carmen", lat: -0.267, lon: -79.456 },
+  { id: "jipijapa", name: "Jipijapa", lat: -1.348, lon: -80.579 },
+  { id: "bahia", name: "Bahía de Caráquez", lat: -0.6, lon: -80.424 },
+  { id: "calceta", name: "Calceta (Bolívar)", lat: -0.845, lon: -80.166 },
+  { id: "santa-ana", name: "Santa Ana", lat: -1.205, lon: -80.371 },
+  { id: "rocafuerte", name: "Rocafuerte", lat: -0.922, lon: -80.448 },
+  { id: "pedernales", name: "Pedernales", lat: 0.072, lon: -80.052 },
+  { id: "gps", name: "Mi ubicación (GPS)" },
+];
 
 const $ = (id) => document.getElementById(id);
 const money = (v) => "$" + v.toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const kg = (v) => v.toLocaleString("es-EC", { maximumFractionDigits: 1 });
+const nf = (v, d = 2) => v.toLocaleString("es-EC", { maximumFractionDigits: d });
+// Small amounts (greenhouse) read better in grams.
+const weight = (kgValue) => (kgValue < 1 ? `${nf(kgValue * 1000, 0)} g` : `${kg(kgValue)} kg`);
+const areaLabel = (value, unit) => `${nf(value)} ${value === 1 ? AREA_UNITS[unit].one : AREA_UNITS[unit].many}`;
 const num = (id, fallback = 0) => {
   const v = parseFloat($(id).value);
   return Number.isFinite(v) ? v : fallback;
@@ -27,9 +68,9 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return { prices: parsed.prices || {}, history: parsed.history || [], last: parsed.last || null };
+    return { prices: parsed.prices || {}, history: parsed.history || [], last: parsed.last || null, wxPlace: parsed.wxPlace || "portoviejo" };
   } catch {
-    return { prices: {}, history: [], last: null };
+    return { prices: {}, history: [], last: null, wxPlace: "portoviejo" };
   }
 }
 
@@ -50,6 +91,20 @@ const fertById = (id) => {
 };
 const cropById = (id) => CROPS.find((c) => c.id === id);
 const limeById = (id) => LIMES.find((l) => l.id === id) || LIMES[0];
+// In the greenhouse only water-soluble products can go through the drippers.
+const usableFerts = (mode) => FERTILIZERS.filter((f) => mode !== "greenhouse" || f.soluble);
+const stageOf = (input) => STAGES[input.stage] || STAGES.cycle;
+
+// ---------- Plant density ----------
+// plants/ha = 10 000 m² / (distance between plants × distance between rows) × plants per site × usable share.
+function calculatePlants(input) {
+  const toM = (v, unit) => (unit === "m" ? v : v / 100);
+  const plant = toM(input.plantDist, input.plantDistUnit);
+  const row = toM(input.rowDist, input.rowDistUnit);
+  if (!(plant > 0) || !(row > 0)) return null;
+  const perHa = (10000 / (plant * row)) * input.perSite * (input.usable / 100);
+  return { perHa, total: perHa * input.area };
+}
 
 // ---------- Liming ----------
 // With exchangeable acidity (Al+H) we use Kamprath: 1.5 t CaCO3 per cmol/kg.
@@ -85,11 +140,13 @@ function calculate(input, { withLime = true } = {}) {
     k: kPpm * factor * K_TO_K2O,
   };
   const req = { n: crop.n, p: crop.p, k: crop.k };
+  const stage = stageOf(input);
   const deficit = {};
   const toApply = {};
   for (const { key } of NUTRIENTS) {
+    // Liebig works on the whole cycle; the chosen stage takes only its share of the deficit.
     deficit[key] = Math.max(0, req[key] - soil[key]);
-    toApply[key] = deficit[key] / (input.eff[key] / 100);
+    toApply[key] = (deficit[key] / (input.eff[key] / 100)) * stage.share[key];
   }
 
   // Cover P first, then K, then N, discounting what each product already supplied.
@@ -113,12 +170,14 @@ function calculate(input, { withLime = true } = {}) {
   const surplus = {};
   for (const { key } of NUTRIENTS) surplus[key] = Math.max(0, -remaining[key]);
 
-  const lime = withLime ? calculateLime(input, crop) : null;
+  // Lime goes before planting, so it only belongs to the full cycle or the planting stage.
+  const limeStage = input.stage === "cycle" || input.stage === "seeding" || !input.stage;
+  const lime = withLime && limeStage ? calculateLime(input, crop) : null;
   const fertTotal = lines.reduce((s, l) => s + l.cost, 0);
   const fertSacks = lines.reduce((s, l) => s + l.costSacks, 0);
 
   return {
-    crop, soil, req, deficit, lines, surplus, lime, fertTotal,
+    crop, soil, req, deficit, stage, toApply, lines, surplus, lime, fertTotal,
     total: fertTotal + (lime ? lime.cost : 0),
     totalSacks: fertSacks + (lime ? lime.costSacks : 0),
   };
@@ -129,7 +188,7 @@ function calculate(input, { withLime = true } = {}) {
 const mixKey = (lines) => lines.map((l) => `${l.id}:${l.kgHa.toFixed(1)}`).sort().join("|");
 
 function compareOptions(input) {
-  const sourcesOf = (key) => FERTILIZERS.filter((f) => f[key] > 0).map((f) => f.id);
+  const sourcesOf = (key) => usableFerts(input.mode).filter((f) => f[key] > 0).map((f) => f.id);
   const best = new Map();
   for (const p of sourcesOf("p")) {
     for (const k of sourcesOf("k")) {
@@ -148,10 +207,46 @@ function compareOptions(input) {
   return [...best.values()].sort((a, b) => a.cost - b.cost);
 }
 
+// ---------- Fertigation (greenhouse) ----------
+// Splits the stage's fertilizer into irrigations and checks the salt load per litre of water.
+function calculateFertigation(input, r) {
+  if (input.mode !== "greenhouse" || !r.lines.length) return null;
+  const rows = r.lines.map((l) => {
+    const gPerApp = (l.kg * 1000) / input.fgApps;
+    return { name: l.name, id: l.id, gPerApp, gPerL: gPerApp / input.fgWater };
+  });
+  const gPerApp = rows.reduce((s, x) => s + x.gPerApp, 0);
+  const gPerL = gPerApp / input.fgWater;
+  const ids = new Set(rows.map((x) => x.id));
+  // Calcium nitrate + phosphates or sulfates form a solid that clogs the drippers.
+  const clash = ids.has("nitrato-calcio") && ["map", "dap", "sop", "sulfato-amonio"].some((id) => ids.has(id));
+  return { rows, gPerApp, gPerL, minWater: gPerApp / MAX_G_PER_L, tooSalty: gPerL > MAX_G_PER_L, clash };
+}
+
 // ---------- Form ----------
+const radio = (name) => document.querySelector(`input[name="${name}"]:checked`)?.value;
+const setRadio = (name, value) => {
+  const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
+  if (el) el.checked = true;
+};
+
 function readInput() {
+  const areaUnit = AREA_UNITS[$("areaUnit").value] ? $("areaUnit").value : "ha";
+  const areaValue = Math.max(0.0001, num("area", 1));
   return {
     cropId: $("cropSelect").value,
+    mode: radio("mode") || "field",
+    stage: radio("stage") || "cycle",
+    areaValue,
+    areaUnit,
+    fgApps: Math.max(1, Math.round(num("fgApps", 10))),
+    fgWater: Math.max(1, num("fgWater", 200)),
+    plantDist: Math.max(0, num("plantDist")),
+    plantDistUnit: $("plantDistUnit").value,
+    rowDist: Math.max(0, num("rowDist")),
+    rowDistUnit: $("rowDistUnit").value,
+    perSite: Math.max(1, Math.round(num("perSite", 1))),
+    usable: Math.min(100, Math.max(1, num("usable", 100))),
     soilN: Math.max(0, num("soilN")),
     soilP: Math.max(0, num("soilP")),
     soilK: Math.max(0, num("soilK")),
@@ -160,7 +255,8 @@ function readInput() {
     alh: $("soilAlh").value === "" ? null : Math.max(0, num("soilAlh")),
     limeId: $("limeSelect").value,
     altitude: $("altitude").value === "" ? null : num("altitude"),
-    area: Math.max(0.01, num("area", 1)),
+    area: (areaValue * AREA_UNITS[areaUnit].m2) / 10000, // always hectares
+
     depth: Math.max(1, num("depth", 20)),
     density: Math.max(0.1, num("density", 1.3)),
     eff: {
@@ -176,6 +272,20 @@ function writeInput(i) {
   $("cropSearch").value = "";
   fillCropSelect("");
   $("cropSelect").value = i.cropId;
+  // Entries saved before these fields existed default to open field, full cycle and hectares.
+  setRadio("mode", i.mode || "field");
+  setRadio("stage", i.stage || "cycle");
+  fillSourceSelects();
+  $("areaUnit").value = i.areaUnit || "ha";
+  $("area").value = i.areaValue ?? i.area;
+  $("fgApps").value = i.fgApps ?? 10;
+  $("fgWater").value = i.fgWater ?? 200;
+  $("plantDist").value = i.plantDist || "";
+  $("plantDistUnit").value = i.plantDistUnit || "cm";
+  $("rowDist").value = i.rowDist || "";
+  $("rowDistUnit").value = i.rowDistUnit || "cm";
+  $("perSite").value = i.perSite ?? 1;
+  $("usable").value = i.usable ?? 100;
   $("soilN").value = i.soilN;
   $("soilP").value = i.soilP;
   $("soilK").value = i.soilK;
@@ -184,7 +294,6 @@ function writeInput(i) {
   $("soilAlh").value = i.alh ?? "";
   $("limeSelect").value = limeById(i.limeId).id;
   $("altitude").value = i.altitude ?? "";
-  $("area").value = i.area;
   $("depth").value = i.depth;
   $("density").value = i.density;
   $("effN").value = i.eff.n;
@@ -206,10 +315,13 @@ function fillCropSelect(query) {
 }
 
 function fillSourceSelects() {
+  const mode = radio("mode") || "field";
+  const defaults = mode === "greenhouse" ? GREENHOUSE_SOURCES : DEFAULT_SOURCES;
   for (const key of ["p", "k", "n"]) {
     const sel = $("src" + key.toUpperCase());
-    const prev = sel.value || DEFAULT_SOURCES[key];
-    sel.innerHTML = FERTILIZERS.filter((f) => f[key] > 0)
+    const options = usableFerts(mode).filter((f) => f[key] > 0);
+    const prev = options.some((f) => f.id === sel.value) ? sel.value : defaults[key];
+    sel.innerHTML = options
       .map((f) => {
         const p = fertById(f.id);
         return `<option value="${f.id}">${f.name} (${f.n}-${f.p}-${f.k}) ${money(p.price)}</option>`;
@@ -217,6 +329,9 @@ function fillSourceSelects() {
       .join("");
     sel.value = prev;
   }
+  $("solubleHint").hidden = mode !== "greenhouse";
+  $("fertigation").hidden = mode !== "greenhouse";
+  $("densityN").textContent = mode === "greenhouse" ? "5" : "4";
 }
 
 function fillLimeSelect() {
@@ -245,7 +360,7 @@ function renderColumns(r) {
     const covered = r.deficit[key] === 0;
     return `
       <div class="col col-${key}">
-        <p class="col-val">${covered ? "Cubierto" : kg(r.deficit[key]) + " kg"}</p>
+        <p class="col-val">${covered ? "Cubierto" : kg(r.deficit[key]) + " kg/ha"}</p>
         <div class="col-bar" style="--h:${(req / max) * 100}" title="${name}: requiere ${kg(req)} kg/ha">
           <span class="col-def" style="flex-grow:${r.deficit[key]}"></span>
           <span class="col-soil" style="flex-grow:${soilPart}"></span>
@@ -273,7 +388,46 @@ function buildWarnings(r, input) {
     if (r.surplus[key] > 1) w.push(`Los abonos elegidos dejan ${kg(r.surplus[key])} kg/ha de ${label} de más.`);
   }
   if (!r.lines.length) w.push("El suelo ya cubre todo lo que pide el cultivo. No necesitas comprar abono.");
+  const fg = calculateFertigation(input, r);
+  if (fg?.tooSalty) {
+    w.push(`Por riego quedan ${nf(fg.gPerL, 1)} g de abono por litro: es demasiado y puede quemar las raíces. Usa al menos ${nf(fg.minWater, 0)} litros por riego o haz más riegos.`);
+  }
+  if (fg?.clash) {
+    w.push("No mezcles el nitrato de calcio con fosfatos ni sulfatos en el mismo tanque: se forma un sólido que tapa los goteros. Disuélvelos en riegos distintos.");
+  }
   return w;
+}
+
+function stageHintText(input) {
+  const s = stageOf(input).share;
+  if (input.stage === "cycle") return "Se calcula todo el abono que el cultivo necesita en el ciclo.";
+  const pct = (v) => `${Math.round(v * 100)} %`;
+  return `En esta etapa se aplica el ${pct(s.n)} del N, el ${pct(s.p)} del P₂O₅ y el ${pct(s.k)} del K₂O del ciclo.`;
+}
+
+function renderFertigation(fg, input) {
+  $("fgResult").hidden = !fg;
+  if (!fg) return;
+  $("fgResult").innerHTML = `
+    <p class="lime-title">Mezcla por riego <span>${input.fgApps} riegos</span></p>
+    <p>Disuelve esto en <b>${nf(input.fgWater, 0)} litros</b> de agua en cada riego:</p>
+    <table class="mini">
+      <thead><tr><th>Abono</th><th>Por riego</th><th>Por litro</th></tr></thead>
+      <tbody>${fg.rows.map((x) => `<tr><td>${x.name}</td><td>${nf(x.gPerApp, 1)} g</td><td>${nf(x.gPerL, 2)} g</td></tr>`).join("")}
+        <tr><td><b>Total</b></td><td><b>${nf(fg.gPerApp, 1)} g</b></td><td><b>${nf(fg.gPerL, 2)} g</b></td></tr></tbody>
+    </table>
+    <p>${fg.tooSalty ? `Pasa de ${MAX_G_PER_L} g/L: usa más agua o más riegos.` : `Está por debajo de ${MAX_G_PER_L} g/L, una mezcla segura para las raíces.`}</p>`;
+}
+
+function renderPlants(plants, r, input, fg) {
+  $("plants").hidden = !plants;
+  if (!plants) return;
+  const fertKg = r.lines.reduce((s, l) => s + l.kg, 0);
+  const perPlant = plants.total >= 1 ? (fertKg * 1000) / plants.total : 0;
+  const perApp = fg ? perPlant / input.fgApps : null;
+  $("plants").innerHTML = `
+    <p class="lime-title">Plantas <span>${nf(Math.round(plants.total), 0)}</span></p>
+    <p>${nf(Math.round(plants.perHa), 0)} plantas por hectárea. A cada planta le tocan <b>${nf(perPlant, 1)} g</b> de abono en ${input.stage === "cycle" ? "el ciclo" : "esta etapa"}${perApp !== null ? `, unos ${nf(perApp, 2)} g en cada riego` : ""}.</p>`;
 }
 
 function render() {
@@ -284,17 +438,28 @@ function render() {
   renderColumns(r);
   renderWarnings(r, input);
 
-  const areaTxt = input.area === 1 ? "1 hectárea" : `${input.area.toLocaleString("es-EC")} hectáreas`;
-  $("resultCrop").textContent = `${r.crop.name} en ${areaTxt}`;
+  const areaTxt = areaLabel(input.areaValue, input.areaUnit);
+  const haTxt = input.areaUnit === "ha" ? "" : ` (${nf(input.area, 4)} ha)`;
+  const stageTxt = input.stage === "cycle" ? "" : `, etapa: ${r.stage.name.toLowerCase()}`;
+  $("resultCrop").textContent = `${r.crop.name} en ${areaTxt}${haTxt}${stageTxt}`;
+  $("areaEquiv").textContent = input.areaUnit === "ha"
+    ? `= ${nf(input.area * 10000, 0)} m²`
+    : `= ${nf(input.area, 4)} ha (${nf(input.area * 10000, 0)} m²)`;
+  $("stageHint").textContent = stageHintText(input);
   $("totalCost").textContent = money(r.total);
   const parts = r.lime ? ` Abono ${money(r.fertTotal)} y cal ${money(r.lime.cost)}.` : "";
-  $("totalSub").textContent = r.lines.length || r.lime
-    ? `Comprando sacos completos: ${money(r.totalSacks)}. Por hectárea: ${money(r.total / input.area)}.${parts}`
-    : "";
-  const rows = r.lines.map((l) => `<tr><td>${l.name}</td><td>${kg(l.kg)}</td><td>${l.sacks}</td><td>${money(l.cost)}</td></tr>`);
-  if (r.lime) rows.push(`<tr class="lime-row"><td>${r.lime.name}</td><td>${kg(r.lime.kg)}</td><td>${r.lime.sacks}</td><td>${money(r.lime.cost)}</td></tr>`);
+  // A small greenhouse buys by the kilo, so full sacks would overstate the cost.
+  const perUnit = input.mode === "greenhouse"
+    ? `Comprando por kilo en el almacén. Por m²: ${money(r.total / (input.area * 10000))}.`
+    : `Comprando sacos completos: ${money(r.totalSacks)}. Por hectárea: ${money(r.total / input.area)}.`;
+  $("totalSub").textContent = r.lines.length || r.lime ? `${perUnit}${parts}` : "";
+  const rows = r.lines.map((l) => `<tr><td>${l.name}</td><td>${weight(l.kg)}</td><td>${l.sacks}</td><td>${money(l.cost)}</td></tr>`);
+  if (r.lime) rows.push(`<tr class="lime-row"><td>${r.lime.name}</td><td>${weight(r.lime.kg)}</td><td>${r.lime.sacks}</td><td>${money(r.lime.cost)}</td></tr>`);
   $("buyBody").innerHTML = rows.length ? rows.join("") : `<tr><td colspan="4" class="empty">Nada que comprar</td></tr>`;
   renderLime(r.lime, input);
+  const fg = calculateFertigation(input, r);
+  renderFertigation(fg, input);
+  renderPlants(calculatePlants(input), r, input, fg);
   scheduleCompare(input, r);
 
   state.last = input;
@@ -324,7 +489,7 @@ function renderCompare(input, r) {
   const mineRank = options.findIndex((o) => o.key === mineKey);
   const shown = mineRank >= 5 ? [...top, options[mineRank]] : top;
   const mixText = (o) => o.lines.length
-    ? o.lines.map((l) => `${l.name}: ${kg(l.kg)} kg`).join("<br>")
+    ? o.lines.map((l) => `${l.name}: ${weight(l.kg)}`).join("<br>")
     : "Sin abono";
   const surplusText = (o) => NUTRIENTS
     .filter(({ key }) => o.surplus[key] > 1)
@@ -411,13 +576,18 @@ function exportExcel() {
   const input = readInput();
   const r = calculate(input);
   const fSrc = (key) => fertById(input.sources[key]).name;
+  const fg = calculateFertigation(input, r);
+  const plants = calculatePlants(input);
   const round = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
 
   const summary = [
     ["FertiManabí: cálculo de fertilización"],
     ["Fecha", new Date().toLocaleString("es-EC")],
     ["Cultivo", `${r.crop.name} (${r.crop.sci})`],
-    ["Superficie (ha)", input.area],
+    ["Tipo de producción", input.mode === "greenhouse" ? "Invernadero (fertirriego)" : "Campo abierto"],
+    ["Superficie", areaLabel(input.areaValue, input.areaUnit)],
+    ["Superficie (ha)", round(input.area, 4)],
+    ["Etapa del cultivo", r.stage.name],
     [],
     ["Análisis de suelo"],
     ["Nitrógeno (ppm)", input.soilN],
@@ -437,6 +607,9 @@ function exportExcel() {
     ["TOTAL", "", "", r.lines.reduce((s, l) => s + l.sacks, 0) + (r.lime ? r.lime.sacks : 0), "", round(r.total), round(r.totalSacks)],
     ["Costo por hectárea (USD)", round(r.total / input.area)],
     ...(r.lime ? [[], ["Encalado"], ["pH objetivo", round(r.lime.target, 1)], ["CaCO₃ equivalente (t/ha)", round(r.lime.caco3Tha)], ["Método", r.lime.method]] : []),
+    ...(fg ? [[], [`Fertirriego: ${input.fgApps} riegos de ${input.fgWater} L`], ["Abono", "g por riego", "g por litro"],
+      ...fg.rows.map((x) => [x.name, round(x.gPerApp, 1), round(x.gPerL)]), ["Total", round(fg.gPerApp, 1), round(fg.gPerL)]] : []),
+    ...(plants ? [[], ["Plantas por hectárea", Math.round(plants.perHa)], ["Plantas en la superficie", Math.round(plants.total)]] : []),
   ];
 
   const mineKey = mixKey(r.lines);
@@ -536,7 +709,9 @@ function exportPdf() {
   // Crop and total
   y = 44;
   doc.setTextColor(28, 43, 30).setFont("helvetica", "bold").setFontSize(16).text(r.crop.name, page.m, y);
-  doc.setFont("helvetica", "italic").setFontSize(10).setTextColor(90).text(`${r.crop.sci}. Superficie: ${input.area} ha`, page.m, y + 6);
+  const haNote = input.areaUnit === "ha" ? "" : ` (${nf(input.area, 4)} ha)`;
+  doc.setFont("helvetica", "italic").setFontSize(10).setTextColor(90)
+    .text(pdfText(`${r.crop.sci}. Superficie: ${areaLabel(input.areaValue, input.areaUnit)}${haNote}. Etapa: ${r.stage.name}.`), page.m, y + 6);
   doc.setFont("helvetica", "normal").setFontSize(9).text("Costo total", page.w - page.m, y - 6, { align: "right" });
   doc.setFont("helvetica", "bold").setFontSize(22).setTextColor(...green).text(money(r.total), page.w - page.m, y + 4, { align: "right" });
   doc.setFont("helvetica", "normal").setFontSize(8.5).setTextColor(90)
@@ -557,10 +732,10 @@ function exportPdf() {
   table(["Nutriente", "Requerimiento", "Aporta el suelo", "Déficit", "Fuente elegida"],
     NUTRIENTS.map(({ key, label }) => [label, kg(r.req[key]), kg(r.soil[key]), kg(r.deficit[key]), fertById(input.sources[key]).name]));
 
-  heading(`Lista de compra para ${input.area} ha`);
-  const buyRows = r.lines.map((l) => [l.name, kg(l.kg), String(l.sacks), money(l.cost)]);
-  if (r.lime) buyRows.push([r.lime.name, kg(r.lime.kg), String(r.lime.sacks), money(r.lime.cost)]);
-  table(["Producto", "kg", "Sacos de 50 kg", "Costo"],
+  heading(`Lista de compra para ${areaLabel(input.areaValue, input.areaUnit)}`);
+  const buyRows = r.lines.map((l) => [l.name, weight(l.kg), String(l.sacks), money(l.cost)]);
+  if (r.lime) buyRows.push([r.lime.name, weight(r.lime.kg), String(r.lime.sacks), money(r.lime.cost)]);
+  table(["Producto", "Cantidad", "Sacos de 50 kg", "Costo"],
     buyRows.length ? buyRows : [["Nada que comprar", "", "", ""]],
     {
       foot: [["Total", "", String(r.lines.reduce((s, l) => s + l.sacks, 0) + (r.lime ? r.lime.sacks : 0)), money(r.total)]],
@@ -573,12 +748,27 @@ function exportPdf() {
     paragraph(`El pH ${input.ph} está por debajo del rango del cultivo (${r.crop.ph[0]} a ${r.crop.ph[1]}). Aplicar ${kg(r.lime.kgHa)} kg/ha de ${r.lime.name.toLowerCase()} para llevarlo a cerca de ${r.lime.target.toFixed(1)}. Equivale a ${r.lime.caco3Tha.toFixed(2)} t/ha de CaCO₃ (${r.lime.method}). Aplicar 1 a 2 meses antes de fertilizar.`);
   }
 
+  const fg = calculateFertigation(input, r);
+  if (fg) {
+    heading(`Fertirriego: ${input.fgApps} riegos de ${nf(input.fgWater, 0)} litros`);
+    table(["Abono", "Por riego", "Por litro"], [
+      ...fg.rows.map((x) => [x.name, `${nf(x.gPerApp, 1)} g`, `${nf(x.gPerL, 2)} g`]),
+      ["Total", `${nf(fg.gPerApp, 1)} g`, `${nf(fg.gPerL, 2)} g`],
+    ], { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } } });
+  }
+
+  const plants = calculatePlants(input);
+  if (plants) {
+    heading("Densidad de siembra");
+    paragraph(`${nf(Math.round(plants.perHa), 0)} plantas por hectárea; ${nf(Math.round(plants.total), 0)} plantas en la superficie.`);
+  }
+
   heading("Fórmulas más baratas para el mismo déficit", 60);
   const mineKey = mixKey(r.lines);
   table(["Puesto", "Combinación", "Sacos", "Costo del abono"],
     compareOptions(input).slice(0, 3).map((o, i) => [
       String(i + 1),
-      (o.lines.map((l) => `${l.name}: ${kg(l.kg)} kg`).join("\n") || "Sin abono") + (o.key === mineKey ? "\n(fórmula elegida)" : ""),
+      (o.lines.map((l) => `${l.name}: ${weight(l.kg)}`).join("\n") || "Sin abono") + (o.key === mineKey ? "\n(fórmula elegida)" : ""),
       String(o.sacks), money(o.cost),
     ]), { columnStyles: { 0: { cellWidth: 16 }, 2: { halign: "right" }, 3: { halign: "right" } } });
 
@@ -601,6 +791,94 @@ function exportPdf() {
   toast("PDF descargado");
 }
 
+// ---------- Weather (Open-Meteo) ----------
+// Rules for granular fertilizer in the open field: heavy rain washes it away, strong wind scatters it,
+// light rain helps it dissolve, and urea on dry hot soil escapes to the air as ammonia.
+function judgeDay(d, input) {
+  const bad = [];
+  const tips = [];
+  const usesUrea = Object.values(input.sources).includes("urea");
+  if (input.mode === "greenhouse") {
+    if (d.tmax >= 32) tips.push("hace calor: riega con abono temprano en la mañana o al final de la tarde");
+    else tips.push("en invernadero la lluvia no afecta el fertirriego");
+    return { ok: true, bad, tips };
+  }
+  if (d.rain >= 20) bad.push(`lluvia fuerte de ${nf(d.rain, 1)} mm que lava el abono`);
+  else if (d.rain >= 10 && d.prob >= 70) bad.push(`lluvia de ${nf(d.rain, 1)} mm con ${d.prob} % de probabilidad`);
+  if (d.wind >= 30) bad.push(`viento de ${nf(d.wind, 0)} km/h que dispersa el abono`);
+  if (!bad.length) {
+    if (d.rain >= 2) tips.push("una lluvia ligera ayuda a disolver el abono");
+    else if (usesUrea && d.tmax >= 30) tips.push("sin lluvia y con calor la urea se pierde al aire: entiérrala o riega después de aplicarla");
+    else tips.push("aplica temprano y, si puedes, riega después");
+  }
+  return { ok: !bad.length, bad, tips };
+}
+
+const capitalize = (t) => t.replace(/^./, (c) => c.toUpperCase());
+const dayName = (iso, i) => i === 0 ? "Hoy" : i === 1 ? "Mañana"
+  : new Date(iso + "T12:00").toLocaleDateString("es-EC", { weekday: "long" }).replace(/^./, (c) => c.toUpperCase());
+
+function fillPlaces() {
+  $("wxPlace").innerHTML = PLACES.map((p) => `<option value="${p.id}">${p.name}</option>`).join("");
+  $("wxPlace").value = PLACES.some((p) => p.id === state.wxPlace) ? state.wxPlace : "portoviejo";
+}
+
+function placeCoords(place) {
+  if (place.id !== "gps") return Promise.resolve(place);
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("Tu navegador no comparte la ubicación."));
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ name: "tu ubicación", lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => reject(new Error("No diste permiso para usar tu ubicación. Elige tu cantón en la lista.")),
+      { timeout: 10000 },
+    );
+  });
+}
+
+async function loadWeather() {
+  const place = PLACES.find((p) => p.id === $("wxPlace").value) || PLACES[0];
+  state.wxPlace = place.id;
+  saveState();
+  $("wxOut").innerHTML = `<p class="hint">Consultando el pronóstico…</p>`;
+  try {
+    const at = await placeCoords(place);
+    const url = "https://api.open-meteo.com/v1/forecast?latitude=" + at.lat + "&longitude=" + at.lon
+      + "&daily=precipitation_sum,precipitation_probability_max,temperature_2m_max,wind_speed_10m_max"
+      + "&timezone=America%2FGuayaquil&forecast_days=3";
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("El servicio del clima no respondió. Intenta de nuevo en unos minutos.");
+    const { daily } = await res.json();
+    renderWeather(at.name, daily.time.map((t, i) => ({
+      date: t,
+      rain: daily.precipitation_sum[i] ?? 0,
+      prob: daily.precipitation_probability_max[i] ?? 0,
+      tmax: daily.temperature_2m_max[i],
+      wind: daily.wind_speed_10m_max[i] ?? 0,
+    })));
+  } catch (err) {
+    const msg = err instanceof TypeError ? "Sin conexión a internet: no se pudo traer el pronóstico." : err.message;
+    $("wxOut").innerHTML = `<p class="wx-verdict warn">${escapeHtml(msg)}</p>`;
+  }
+}
+
+function renderWeather(placeName, days) {
+  const input = readInput();
+  const judged = days.map((d) => ({ ...d, ...judgeDay(d, input) }));
+  const today = judged[0];
+  const next = judged.findIndex((d) => d.ok);
+  const verdict = today.ok
+    ? `<p class="wx-verdict good">Sí, hoy es buen día para fertilizar en ${escapeHtml(placeName)}.<small>${capitalize(today.tips.join(". "))}.</small></p>`
+    : `<p class="wx-verdict warn">Mejor no fertilices hoy en ${escapeHtml(placeName)}.<small>Hay ${today.bad.join(" y ")}. ${next > 0 ? `${dayName(judged[next].date, next)} se ve mejor.` : "Los próximos días también vienen difíciles: espera a que pase la lluvia."}</small></p>`;
+  $("wxOut").innerHTML = verdict + `<div class="wx-days">${judged.map((d, i) => `
+    <div class="wx-day">
+      <b>${dayName(d.date, i)}</b>
+      <span>Lluvia: ${nf(d.rain, 1)} mm (${d.prob} %)</span>
+      <span>Temperatura máx.: ${nf(d.tmax, 0)} °C</span>
+      <span>Viento: ${nf(d.wind, 0)} km/h</span>
+      <span class="tag ${d.ok ? "" : "bad"}">${d.ok ? "Apto" : "No apto"}</span>
+    </div>`).join("")}</div>`;
+}
+
 // ---------- Tabs ----------
 function showTab(name) {
   document.querySelectorAll(".tabs [role=tab]").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === name));
@@ -609,6 +887,24 @@ function showTab(name) {
 }
 
 // ---------- Wiring ----------
+// Changing the unit keeps the same land: 1 ha becomes 10 000 m², not 1 m².
+let lastAreaUnit = "ha";
+function convertArea(to = $("areaUnit").value) {
+  const from = lastAreaUnit;
+  lastAreaUnit = to;
+  if (from === to) return;
+  const m2 = num("area", 1) * AREA_UNITS[from].m2;
+  $("areaUnit").value = to;
+  $("area").value = +(m2 / AREA_UNITS[to].m2).toFixed(4);
+}
+
+// A greenhouse is measured in m² and uses only soluble fertilizers.
+function switchMode(mode) {
+  fillSourceSelects();
+  if (mode === "greenhouse" && $("areaUnit").value === "ha") convertArea("m2");
+  if (mode === "field" && $("areaUnit").value === "m2") convertArea("ha");
+}
+
 function init() {
   fillCropSelect("");
   fillSourceSelects();
@@ -617,11 +913,17 @@ function init() {
   if (state.last && cropById(state.last.cropId)) {
     try { writeInput(state.last); } catch { /* ignore stale saved input */ }
   }
+  lastAreaUnit = $("areaUnit").value;
+  fillSourceSelects();
+  fillPlaces();
+  $("wxBtn").addEventListener("click", loadWeather);
 
   $("calcForm").addEventListener("input", (e) => {
     if (e.target.id === "cropSearch") {
       fillCropSelect(e.target.value);
     }
+    if (e.target.name === "mode") switchMode(e.target.value);
+    if (e.target.id === "areaUnit") convertArea();
     render();
   });
   $("calcForm").addEventListener("submit", (e) => e.preventDefault());
@@ -633,7 +935,7 @@ function init() {
     state.history.unshift({
       date: Date.now(),
       cropName: r.crop.name,
-      areaTxt: `${input.area} ha`,
+      areaTxt: areaLabel(input.areaValue, input.areaUnit) + (input.stage === "cycle" ? "" : `, ${r.stage.name.toLowerCase()}`),
       total: r.total,
       summary: [...r.lines, ...(r.lime ? [r.lime] : [])].map((l) => `${l.sacks} sacos de ${l.name}`).join(", ") || "Sin abono",
       input,
@@ -662,6 +964,7 @@ function init() {
     const del = e.target.dataset.del;
     if (load !== undefined) {
       writeInput(state.history[load].input);
+      lastAreaUnit = $("areaUnit").value;
       render();
       showTab("calc");
     } else if (del !== undefined) {

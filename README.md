@@ -30,6 +30,12 @@ Primero se cubre el P, luego el K y al final el N, descontando lo que ya aportó
 
 ## Extras
 
+- **Unidades de superficie:** hectárea, m², cuadra (7 056 m²), manzana (6 989 m²) y acre (4 047 m²). Al cambiar la unidad se convierte el número, y el cálculo siempre se hace en hectáreas.
+- **Etapa del cultivo:** ciclo completo, siembra y establecimiento (25 % N, 60 % P₂O₅, 30 % K₂O), crecimiento vegetativo (45 %, 25 %, 35 %) o floración y llenado (30 %, 15 %, 35 %). Liebig se calcula para el ciclo y la etapa toma su parte. La cal solo aparece en el ciclo completo o en la siembra.
+- **Invernadero pequeño (fertirriego):** solo muestra abonos solubles y reparte la dosis en riegos: gramos por riego y gramos por litro. Avisa si la mezcla pasa de 2 g/L o si se junta nitrato de calcio con fosfatos o sulfatos.
+- **Densidad de siembra (opcional):** `plantas/ha = 10 000 ÷ (entre plantas × entre hileras) × plantas por sitio × % aprovechable`, y los gramos de abono por planta.
+- **¿Es buen día para fertilizar?:** pronóstico de 3 días de Open-Meteo por cantón o GPS. No se recomienda con lluvia de 20 mm o más, con 10 mm o más y probabilidad de 70 % o más, ni con viento de 30 km/h o más.
+
 - **Comparar fórmulas:** prueba todas las combinaciones de fuentes de P, K y N entre los 25 fertilizantes (unas 4 000) y muestra las 5 más baratas para cubrir el mismo déficit. Con "Usar esta" se aplica la combinación.
 - **Encalado:** si el pH está por debajo del rango del cultivo, calcula la cal. Con acidez intercambiable usa Kamprath (`1.5 × Al+H` t/ha de CaCO₃); sin ese dato, estima 2 t de CaCO₃ por unidad de pH. Se ajusta por el poder neutralizante de la cal elegida y se suma al costo.
 - **Descargar Excel:** `.xlsx` con resultado, comparación, las dos bases de datos e historial.

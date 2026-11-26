@@ -130,8 +130,9 @@ input, select {
 }
 input:hover, select:hover { border-color: var(--muted); }
 input:focus, select:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px color-mix(in srgb, var(--leaf) 25%, transparent); }
-.combo { display: flex; }
-.combo input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.combo { display: flex; min-width: 0; }
+.combo input { flex: 1 1 0; width: 0; min-width: 0; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.combo select { flex: 0 0 auto; }
 .combo select { width: auto; border-left: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 0.9rem; padding: 10px 6px; }
 .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 600px) { .row3 { grid-template-columns: 1fr 1fr; } .row3 > span:empty { display: none; } }
@@ -309,3 +310,48 @@ input:focus, select:focus { outline: none; border-color: var(--leaf); box-shadow
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---------- Choice chips (mode and crop stage) ---------- */
+.chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.chips-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 600px) { .chips-4 { grid-template-columns: 1fr 1fr; } }
+.chip { position: relative; cursor: pointer; }
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip > span {
+  display: grid; gap: 2px; height: 100%;
+  padding: 10px 12px; border: 1.5px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--bg); font-weight: 700; font-size: 0.92rem; line-height: 1.25;
+}
+.chip small { font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+.chip:hover > span { border-color: var(--muted); }
+.chip input:checked + span { border-color: var(--leaf); background: color-mix(in srgb, var(--leaf) 14%, var(--bg)); box-shadow: inset 0 0 0 1px var(--leaf); }
+.chip input:focus-visible + span { box-shadow: 0 0 0 3px color-mix(in srgb, var(--leaf) 35%, transparent); }
+.equiv { color: var(--muted); font-size: 0.85rem; min-height: 1.2em; }
+.step legend .opt { font: 400 0.9rem var(--body); color: var(--muted); }
+
+/* Extra result blocks (fertigation and plant density) */
+.mini { width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; margin-top: 6px; }
+.mini th { text-align: left; font-weight: 400; color: var(--panel-muted); padding: 4px 0; }
+.mini td { padding: 4px 0; border-top: 1px solid color-mix(in srgb, var(--panel-ink) 12%, transparent); }
+.mini th:not(:first-child), .mini td:not(:first-child) { text-align: right; padding-left: 10px; }
+.lime p b { color: var(--panel-ink); }
+
+/* ---------- Weather ---------- */
+.weather { margin-top: clamp(32px, 5vw, 56px); }
+.wx-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.wx-controls select { width: auto; }
+.wx-out { display: grid; gap: 14px; }
+.wx-verdict {
+  margin: 0; padding: 16px 20px; border-radius: var(--radius-lg);
+  font: 700 1.2rem var(--display); border: 1.5px solid var(--line); background: var(--surface);
+}
+.wx-verdict small { display: block; margin-top: 4px; font: 400 0.95rem var(--body); color: var(--muted); }
+.wx-verdict.good { border-color: var(--leaf); }
+.wx-verdict.warn { background: var(--warn-bg); color: var(--warn-ink); border-color: transparent; }
+.wx-verdict.warn small { color: var(--warn-ink); }
+.wx-days { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 600px) { .wx-days { grid-template-columns: 1fr; } }
+.wx-day { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; display: grid; gap: 4px; font-size: 0.92rem; }
+.wx-day b { font: 700 1.05rem var(--display); }
+.wx-day .tag { justify-self: start; font-size: 0.78rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--leaf); color: var(--surface); }
+.wx-day .tag.bad { background: var(--p); color: #1c1206; }

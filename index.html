@@ -28,8 +28,8 @@
     <!-- Calculator -->
     <section id="tab-calc" class="panel" role="tabpanel">
       <div class="hero">
-        <h1>¿Cuánto abono necesita tu hectárea?</h1>
-        <p>Elige el cultivo, escribe tu análisis de suelo y te decimos qué falta, cuántos sacos comprar y cuánto vas a gastar.</p>
+        <h1>¿Cuánto abono necesita tu terreno?</h1>
+        <p>Elige el cultivo, escribe tu análisis de suelo y te decimos qué falta, cuántos sacos comprar y cuánto vas a gastar. Sirve para el campo y para un invernadero pequeño con fertirriego.</p>
       </div>
 
       <div class="calc-grid">
@@ -44,10 +44,37 @@
               <span>Cultivo</span>
               <select id="cropSelect" required></select>
             </label>
+            <div class="field">
+              <span>¿Dónde vas a sembrar?</span>
+              <div class="chips" role="radiogroup" aria-label="Tipo de producción">
+                <label class="chip"><input type="radio" name="mode" value="field" checked><span>Campo abierto <small>abono al suelo, en sacos</small></span></label>
+                <label class="chip"><input type="radio" name="mode" value="greenhouse"><span>Invernadero pequeño <small>abono disuelto en agua (fertirriego)</small></span></label>
+              </div>
+            </div>
             <label class="field field-area">
-              <span>Superficie a fertilizar <small>ha</small></span>
-              <input id="area" type="number" min="0.01" step="0.01" value="1" inputmode="decimal">
+              <span>Superficie a fertilizar</span>
+              <div class="combo">
+                <input id="area" type="number" min="0.0001" step="any" value="1" inputmode="decimal">
+                <select id="areaUnit" aria-label="Unidad de superficie">
+                  <option value="ha">Hectárea (ha)</option>
+                  <option value="m2">Metro cuadrado (m²)</option>
+                  <option value="cuadra">Cuadra (7 056 m²)</option>
+                  <option value="manzana">Manzana (6 989 m²)</option>
+                  <option value="acre">Acre (4 047 m²)</option>
+                </select>
+              </div>
+              <small id="areaEquiv" class="equiv"></small>
             </label>
+            <div class="field">
+              <span>¿En qué etapa está el cultivo?</span>
+              <div class="chips chips-4" role="radiogroup" aria-label="Etapa del cultivo">
+                <label class="chip"><input type="radio" name="stage" value="cycle" checked><span>Ciclo completo <small>todo el abono del ciclo</small></span></label>
+                <label class="chip"><input type="radio" name="stage" value="seeding"><span>Siembra y establecimiento</span></label>
+                <label class="chip"><input type="radio" name="stage" value="vegetative"><span>Crecimiento vegetativo</span></label>
+                <label class="chip"><input type="radio" name="stage" value="flowering"><span>Floración y llenado</span></label>
+              </div>
+              <small id="stageHint" class="equiv"></small>
+            </div>
             <div id="cropCard" class="crop-card"></div>
           </fieldset>
 
@@ -111,6 +138,35 @@
             <label class="field"><span><i class="dot dot-k"></i> Fuente de potasio</span><select id="srcK"></select></label>
             <label class="field"><span><i class="dot dot-n"></i> Fuente de nitrógeno</span><select id="srcN"></select></label>
             <label class="field"><span><i class="dot dot-lime"></i> Cal para encalar <small>se usa solo si el pH está bajo</small></span><select id="limeSelect"></select></label>
+            <p id="solubleHint" class="hint" hidden>En invernadero solo aparecen los abonos que se disuelven por completo en agua y no tapan los goteros.</p>
+          </fieldset>
+
+          <fieldset id="fertigation" class="step" hidden>
+            <legend><span class="step-n">4</span> Fertirriego</legend>
+            <p class="hint">El abono de la etapa se reparte en varios riegos. Disuélvelo en el tanque y riega como siempre.</p>
+            <div class="row3">
+              <label class="field"><span>Riegos con abono <small>en la etapa</small></span><input id="fgApps" type="number" min="1" step="1" value="10" inputmode="numeric"></label>
+              <label class="field"><span>Agua por riego <small>litros</small></span><input id="fgWater" type="number" min="1" step="1" value="200" inputmode="numeric"></label>
+              <span></span>
+            </div>
+          </fieldset>
+
+          <fieldset class="step">
+            <legend><span id="densityN" class="step-n">4</span> Densidad de siembra <small class="opt">opcional</small></legend>
+            <p class="hint">Llénalo si quieres saber cuántas plantas caben y cuánto abono le toca a cada una.</p>
+            <div class="row3">
+              <label class="field"><span>Entre plantas</span>
+                <div class="combo"><input id="plantDist" type="number" min="0" step="any" placeholder="Ej. 30" inputmode="decimal"><select id="plantDistUnit" aria-label="Unidad"><option value="cm">cm</option><option value="m">m</option></select></div>
+              </label>
+              <label class="field"><span>Entre hileras</span>
+                <div class="combo"><input id="rowDist" type="number" min="0" step="any" placeholder="Ej. 80" inputmode="decimal"><select id="rowDistUnit" aria-label="Unidad"><option value="cm">cm</option><option value="m">m</option></select></div>
+              </label>
+              <label class="field"><span>Plantas por sitio</span><input id="perSite" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+            </div>
+            <div class="row3">
+              <label class="field"><span>Superficie aprovechable <small>%</small></span><input id="usable" type="number" min="1" max="100" step="1" value="100" inputmode="numeric"></label>
+              <span></span><span></span>
+            </div>
           </fieldset>
         </form>
 
@@ -129,11 +185,15 @@
           </div>
 
           <table class="buy">
-            <thead><tr><th>Fertilizante</th><th>kg</th><th>Sacos</th><th>Costo</th></tr></thead>
+            <thead><tr><th>Fertilizante</th><th>Cantidad</th><th>Sacos</th><th>Costo</th></tr></thead>
             <tbody id="buyBody"></tbody>
           </table>
 
           <div id="lime" class="lime" hidden></div>
+
+          <div id="fgResult" class="lime" hidden></div>
+
+          <div id="plants" class="lime" hidden></div>
 
           <ul id="warnings" class="warnings"></ul>
 
@@ -145,6 +205,20 @@
           <p id="toast" class="toast" role="status"></p>
         </aside>
       </div>
+
+      <section class="weather" aria-labelledby="wxTitle">
+        <div class="db-head">
+          <div>
+            <h2 id="wxTitle">¿Es buen día para fertilizar?</h2>
+            <p>Revisa el pronóstico de los próximos 3 días: la lluvia fuerte lava el abono y el viento lo dispersa.</p>
+          </div>
+          <div class="wx-controls">
+            <select id="wxPlace" aria-label="Lugar del pronóstico"></select>
+            <button id="wxBtn" type="button" class="btn">Ver pronóstico</button>
+          </div>
+        </div>
+        <div id="wxOut" class="wx-out" aria-live="polite"><p class="hint">Elige tu cantón y pulsa “Ver pronóstico”. Necesita internet.</p></div>
+      </section>
 
       <section class="compare" aria-labelledby="cmpTitle">
         <div class="db-head">
